@@ -116,8 +116,21 @@ simulate_related_individual <- function(focal_profile, known_relationship, allel
 #' @param known_relationship Character, relationship between individuals
 #' @param allele_frequency_data Data frame with allele frequencies
 #' @param pair_id Character or numeric, unique identifier for this pair
+#' @param batch_id Character, batch identifier (defaults to current datetime)
 #' @return Data frame with pair in wide format (one row per locus)
-simulate_individual_pair <- function(loci_list, population, known_relationship, allele_frequency_data, pair_id = 1) {
+simulate_individual_pair <- function(loci_list, population, known_relationship, allele_frequency_data, pair_id = 1, batch_id = NULL) {
+  
+  # Generate batch_id if not provided
+  if (is.null(batch_id)) {
+    batch_id <- format(Sys.time(), "%Y%m%d_%H%M%S")
+  }
+  
+  # Format pair_id with leading zeros (handles both numeric and character input)
+  if (is.numeric(pair_id)) {
+    pair_id_formatted <- sprintf("%03d", pair_id)
+  } else {
+    pair_id_formatted <- as.character(pair_id)
+  }
   
   # Step 1: Simulate focal individual de novo (using Module 2)
   focal_profile <- simulate_str_profile(loci_list, population, allele_frequency_data)
@@ -132,7 +145,8 @@ simulate_individual_pair <- function(loci_list, population, known_relationship, 
   
   # Step 3: Combine into wide format (one row per locus)
   pair_data <- data.frame(
-    pair_id = rep(pair_id, length(loci_list)),
+    batch_id = rep(batch_id, length(loci_list)),
+    pair_id = rep(pair_id_formatted, length(loci_list)),
     population = rep(population, length(loci_list)),
     known_relationship = rep(known_relationship, length(loci_list)),
     locus = loci_list,
@@ -156,12 +170,18 @@ simulate_individual_pair <- function(loci_list, population, known_relationship, 
 #' @param population Character, population for simulation
 #' @param known_relationship Character, relationship between individuals
 #' @param allele_frequency_data Data frame with allele frequencies
+#' @param batch_id Character, batch identifier (defaults to current datetime)
 #' @return Data frame with all pairs in wide format
-simulate_multiple_pairs <- function(n_pairs, loci_list, population, known_relationship, allele_frequency_data) {
+simulate_multiple_pairs <- function(n_pairs, loci_list, population, known_relationship, allele_frequency_data, batch_id = NULL) {
+  
+  # Generate batch_id if not provided
+  if (is.null(batch_id)) {
+    batch_id <- format(Sys.time(), "%Y%m%d_%H%M%S")
+  }
   
   # Generate all pairs
   pair_list <- lapply(1:n_pairs, function(i) {
-    simulate_individual_pair(loci_list, population, known_relationship, allele_frequency_data, pair_id = i)
+    simulate_individual_pair(loci_list, population, known_relationship, allele_frequency_data, pair_id = i, batch_id = batch_id)
   })
   
   # Combine all pairs
