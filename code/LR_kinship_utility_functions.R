@@ -47,9 +47,26 @@ FALLBACK_FREQ <- 5 / (2 * 1036)   # ≈ 0.002414
 # Helper 1: Count shared alleles WITH multiplicity
 # -----------------------------------------------------------------------------#
 count_shared_alleles <- function(alleles1, alleles2) {
+  # More robust type conversion
+  alleles1 <- as.vector(as.character(alleles1))
+  alleles2 <- as.vector(as.character(alleles2))
+  
+  # Remove any NA values
+  alleles1 <- alleles1[!is.na(alleles1)]
+  alleles2 <- alleles2[!is.na(alleles2)]
+  
+  if (length(alleles1) == 0 || length(alleles2) == 0) {
+    return(0)
+  }
+  
   tbl1 <- table(alleles1)
   tbl2 <- table(alleles2)
   common <- intersect(names(tbl1), names(tbl2))
+  
+  if (length(common) == 0) {
+    return(0)  # No shared alleles - this is the key fix!
+  }
+  
   sum(mapply(function(a) min(tbl1[[a]], tbl2[[a]]), common))
 }
 
