@@ -1,6 +1,14 @@
 # ==============================================================================
 # Module 1: Allele Simulator
 # ==============================================================================
+#
+# Dependencies:
+#   - LR_kinship_utility_functions.R (direct)
+#
+# Direct function calls:
+#   - FALLBACK_FREQ constant from utility functions
+#
+# ------------------------------------------------------------------------------
 
 library(dplyr)
 library(data.table)
