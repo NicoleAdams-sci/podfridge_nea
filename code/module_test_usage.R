@@ -8,12 +8,12 @@ setwd("~/Documents/lasisiLab/podfridge_nea/")
 source("code/LR_kinship_utility_functions.R")
 source("code/module1_allele_simulator.R")
 source("code/module2_STR_profile_simulator.R")
-source("code/module4_related_individual_simulator.R")
-source("code/module5_single_locus_LR.R")
-source("code/module6_combined_LR.R")
-source("code/module7_single_combo_pair_generator.R")
-source("code/module8_single_pop_focal_generator.R")
-source("code/module9_unrelated_pool_generator.R")
+source("code/module3_related_individual_simulator.R")
+source("code/module4_single_locus_LR.R")
+source("code/module5_combined_LR.R")
+source("code/module6_single_combo_pair_generator.R")
+source("code/module7_single_pop_focal_generator.R")
+source("code/module8_unrelated_pool_generator.R")
 
 # Load Allele Frequencies Data
 df_allelefreq <- fread("data/df_allelefreq_combined.csv")
@@ -41,13 +41,13 @@ kinship_matrix <- fread("data/kinship_coefficients.csv")
 # Use Module 1 - simulate single allele
 single_allele <- simulate_allele("D3S1358", "AfAm", df_allelefreq)
 
-# Use Module 2 - simulate STR profile (This could be core_13, identifiler_15, or any custom list)
-profile <- simulate_str_profile(loci_lists$core_13, "AfAm", df_allelefreq)
+# Use Module 2 - simulate STR profile
+profile <- simulate_str_profile(loci_lists$autosomal_29, "AfAm", df_allelefreq)
 
-# Use Module 4 -# Simulate multiple pairs
+# Use Module 3 -# Simulate multiple pairs
 pairs <- simulate_individual_pair(loci_list, "AfAm", "full_siblings", df_allelefreq)
 
-# Use Module 5 - calculate single locus LR 
+# Use Module 4 - calculate single locus LR 
 tested_relationships <- c("parent_child", "full_siblings", "unrelated")
 tested_populations <- c("AfAm", "Cauc", "Hispanic", "Asian")
 
@@ -60,12 +60,12 @@ single_locus_lr <- calculate_single_locus_lr(
   kinship_coefficients = kinship_matrix
 )
 
-# Use Module 6 - calculate loci set LR
+# Use Module 5 - calculate loci set LR
 combined_results <- calculate_combined_lr(single_locus_lr, loci_lists)
 
-# Use Module 7 
+# Use Module 6 - wrapper for pairs (xyz functions)
 # Single combination
-result <- generate_single_combo_pairs(
+result <- generate_pair_batch(
   population = "AfAm",
   relationship = "full_siblings",
   n_pairs = 100,
@@ -74,28 +74,38 @@ result <- generate_single_combo_pairs(
   kinship_coefficients = kinship_matrix
 )
 
-# Use Module 8
+# Use Module 7
 # Single population focal generation
+relationship_counts = list(
+  parent_child = 2,
+  full_siblings = 4,
+  cousins = 2
+)
+
 focalresults <- generate_single_pop_focal(
   population = "AfAm",
   n_focal = 100,
-  family_structure = "nuclear",
+  relationship_counts = relationship_counts,
   loci_list = loci_list,
   allele_frequency_data = df_allelefreq,
   kinship_coefficients = kinship_matrix
 )
 
 # # Multiple populations
-# focalresults2 <- generate_multiple_pop_focal(
-#   populations = c("AfAm", "Cauc", "Hispanic", "Asian"),
-#   n_focal_per_pop = 50,
-#   family_structure = "siblings_only",
-#   loci_list = loci_list,
-#   allele_frequency_data = df_allelefreq,
-#   kinship_coefficients = kinship_matrix
-# )
+population_structures = list(
+  AfAm = list(parent_child = 2, full_siblings = 4),
+  Cauc = list(parent_child = 2, full_siblings = 2),
+  Hispanic = list(parent_child = 2, full_siblings = 3, cousins = 2)
+)
+focalresults2 <- generate_multiple_pop_focal(
+  population_structures = population_structures,
+  n_focal_per_pop = 50,
+  loci_list = loci_list,
+  allele_frequency_data = df_allelefreq,
+  kinship_coefficients = kinship_matrix
+)
 
-# Use Module 9
+# Use Module 8
 # Single population unrelated pool
 unrelatedresult <- generate_unrelated_pool(
   population = "AfAm",
