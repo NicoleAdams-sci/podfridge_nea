@@ -1,6 +1,15 @@
 # ------------------------------------------------------------------------------
 # Module 2: STR Profile Simulator
 # ------------------------------------------------------------------------------
+#
+# Dependencies:
+#   - Module 1: Allele Simulator (direct)
+#   - LR_kinship_utility_functions.R (via Module 1)
+#
+# Direct function calls:
+#   - simulate_allele() from Module 1
+#
+# ------------------------------------------------------------------------------
 
 library(dplyr)
 library(data.table)
