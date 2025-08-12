@@ -121,3 +121,12 @@ unrelatedresult <- generate_unrelated_pool(
 #   loci_list = loci_list,
 #   allele_frequency_data = df_allelefreq
 # )
+
+# Test LR with Module 6 output
+result_lr <- calculate_single_locus_lr(
+  pair_data = result$data,
+  tested_relationship = "parent_child",
+  tested_populations = tested_populations,
+  allele_frequency_data = df_allelefreq,
+  kinship_coefficients = kinship_matrix
+)
