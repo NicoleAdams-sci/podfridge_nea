@@ -66,11 +66,5 @@ simulate_allele <- function(locus, population, allele_frequency_data) {
 
 
 ##### Usage
-# # Load Allele Frequencies Data
-# df_allelefreq <- fread("data/df_allelefreq_combined.csv")
-# #df_allelefreq <- df_allelefreq[population != "all"] # Filter out "all" population
-# df_allelefreq$frequency <- ifelse(df_allelefreq$frequency == 0, FALLBACK_FREQ, df_allelefreq$frequency) # Use shared constant
-# df_allelefreq[, allele := as.character(allele)]
-# 
 # # Use Module 1 - simulate single allele
 # single_allele <- simulate_allele("D3S1358", "AfAm", df_allelefreq)

@@ -191,16 +191,6 @@ create_pair_combinations <- function(populations, relationships, n_pairs_per_com
 # ------------------------------------------------------------------------------
 # Usage Examples (commented out)
 # ------------------------------------------------------------------------------
-# # Load required data
-# df_allelefreq <- fread("data/df_allelefreq_combined.csv")
-# df_allelefreq <- df_allelefreq[population != "all"]
-# df_allelefreq$frequency <- ifelse(df_allelefreq$frequency == 0, FALLBACK_FREQ, df_allelefreq$frequency)
-# kinship_matrix <- fread("data/kinship_coefficients.csv")
-# 
-# # Define loci
-# core_loci <- fread("data/core_CODIS_loci.csv")
-# loci_list <- core_loci[core_loci$core_13 == 1]$locus
-# 
 # # Single combination
 # result <- generate_pair_batch(
 #   population = "AfAm",

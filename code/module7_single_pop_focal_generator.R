@@ -310,16 +310,6 @@ create_standard_family_structure <- function(family_type) {
 # ------------------------------------------------------------------------------
 # Usage Examples (commented out)
 # ------------------------------------------------------------------------------
-# # Load required data
-# df_allelefreq <- fread("data/df_allelefreq_combined.csv")
-# df_allelefreq <- df_allelefreq[population != "all"]
-# df_allelefreq$frequency <- ifelse(df_allelefreq$frequency == 0, FALLBACK_FREQ, df_allelefreq$frequency)
-# kinship_matrix <- fread("data/kinship_coefficients.csv")
-# 
-# # Define loci
-# core_loci <- fread("data/core_CODIS_loci.csv")
-# loci_list <- core_loci[core_loci$core_13 == 1]$locus
-# 
 # # Example 1: Custom family structure
 # custom_structure <- list(
 #   parent_child = 2,      # 2 parents

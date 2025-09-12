@@ -191,15 +191,6 @@ generate_multiple_pop_unrelated <- function(populations,
 # ------------------------------------------------------------------------------
 # Usage Examples (commented out)
 # ------------------------------------------------------------------------------
-# # Load required data
-# df_allelefreq <- fread("data/df_allelefreq_combined.csv")
-# df_allelefreq <- df_allelefreq[population != "all"]
-# df_allelefreq$frequency <- ifelse(df_allelefreq$frequency == 0, FALLBACK_FREQ, df_allelefreq$frequency)
-# 
-# # Define loci
-# core_loci <- fread("data/core_CODIS_loci.csv")
-# loci_list <- core_loci[core_loci$core_13 == 1]$locus
-# 
 # # Single population unrelated pool
 # result <- generate_unrelated_pool(
 #   population = "AfAm",

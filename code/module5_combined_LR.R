@@ -1,10 +1,20 @@
 # ------------------------------------------------------------------------------
 # Module 5: Combined Likelihood Ratio Calculator
 # ------------------------------------------------------------------------------
+#
+# Dependencies:
+#   - LR_kinship_utility_functions.R (direct)
+#
+# Direct function calls:
+#
+# ------------------------------------------------------------------------------
 
 library(dplyr)
 library(tibble)
 library(purrr)
+
+# Source the utility functions to get FALLBACK_FREQ and other shared constants
+source("code/LR_kinship_utility_functions.R")
 
 #' Calculate combined (multi-locus) likelihood ratios across loci sets
 #'
@@ -60,27 +70,10 @@ calculate_combined_lr <- function(single_locus_results, loci_sets) {
 # ------------------------------------------------------------------------------
 # Usage Example (commented out)
 # ------------------------------------------------------------------------------
-# # Load core loci definitions
-# core_loci <- read.csv("data/core_CODIS_loci.csv")
-# loci_lists <- list(
-#   core_13 = core_loci[core_loci$core_13 == 1, ]$locus,
-#   identifiler_15 = core_loci[core_loci$identifiler_15 == 1, ]$locus,
-#   expanded_20 = core_loci[core_loci$expanded_20 == 1, ]$locus
-# )
-# 
 # # Calculate combined LRs (assuming single_locus_lr comes from Module 4)
 # combined_lr_results <- calculate_combined_lr(
 #   single_locus_results = single_locus_lr,
 #   loci_sets = loci_lists
-# )
-# 
-# # Define loci sets explicitly
-# core_loci <- read.csv("data/core_CODIS_loci.csv")
-# loci_lists <- list(
-#   core_13 = core_loci[core_loci$core_13 == 1, ]$locus,
-#   identifiler_15 = core_loci[core_loci$identifiler_15 == 1, ]$locus,
-#   expanded_20 = core_loci[core_loci$expanded_20 == 1, ]$locus,
-#   supplementary = core_loci[core_loci$supplementary == 1, ]$locus
 # )
 # 
 # # Calculate combined LRs with explicit loci sets

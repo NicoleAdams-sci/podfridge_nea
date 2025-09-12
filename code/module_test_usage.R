@@ -46,9 +46,10 @@ profile <- simulate_str_profile(loci_lists$autosomal_29, "AfAm", df_allelefreq)
 
 # Use Module 3 -# Simulate multiple pairs
 pairs <- simulate_individual_pair(loci_list, "AfAm", "full_siblings", df_allelefreq)
+pairs <- simulate_multiple_pairs(10, loci_list, "AfAm", "full_siblings", df_allelefreq)
 
 # Use Module 4 - calculate single locus LR 
-tested_relationships <- c("parent_child", "full_siblings", "unrelated")
+tested_relationships <- c("parent_child", "full_siblings")
 tested_populations <- c("AfAm", "Cauc", "Hispanic", "Asian")
 
 # Calculate single-locus LRs

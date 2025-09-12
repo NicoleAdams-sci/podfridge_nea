@@ -105,23 +105,6 @@ calculate_single_locus_lr <- function(pair_data,
 # ------------------------------------------------------------------------------
 # Usage Example (commented out)
 # ------------------------------------------------------------------------------
-# # Load required data
-# df_allelefreq <- fread("data/df_allelefreq_combined.csv")
-# df_allelefreq <- df_allelefreq[population != "all"]
-# df_allelefreq$frequency <- ifelse(df_allelefreq$frequency == 0, FALLBACK_FREQ, df_allelefreq$frequency)
-# df_allelefreq[, allele := as.character(allele)]
-# 
-# # Load kinship coefficients
-# kinship_matrix <- fread("data/kinship_coefficients.csv")
-# 
-# # Load core loci definitions
-# core_loci <- fread("data/core_CODIS_loci.csv")
-# loci_lists <- list(
-#   core_13 = core_loci[core_13 == 1]$locus,
-#   identifiler_15 = core_loci[identifiler_15 == 1]$locus,
-#   expanded_20 = core_loci[expanded_20 == 1]$locus
-# )
-# 
 # # Example: Calculate LRs for simulated pairs
 # # Assuming pair_data comes from Module 3 (simulate_multiple_pairs)
 # tested_relationships <- c("parent_child", "full_siblings", "unrelated")
