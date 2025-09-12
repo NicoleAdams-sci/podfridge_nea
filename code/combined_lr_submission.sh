@@ -14,7 +14,7 @@ fi
 FILE_COUNT=$(wc -l < "$FILE_LIST")
 sed -e "s/FILE_COUNT_PLACEHOLDER/$FILE_COUNT/" \
     -e "s|FILE_LIST_PLACEHOLDER|$FILE_LIST|" \
-    code/combined_lr.sbatch > code/combined_lr_ready.sbatch
+    code/combined_lr.sh > code/combined_lr_ready.sh
 
 # Submit job
-sbatch code/combined_lr_ready.sbatch
+sbatch code/combined_lr_ready.sh
