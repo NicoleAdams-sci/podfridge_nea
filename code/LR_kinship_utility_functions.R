@@ -44,6 +44,30 @@ library(purrr)
 FALLBACK_FREQ <- 5 / (2 * 1036)   # ≈ 0.002414
 
 # -----------------------------------------------------------------------------#
+# Allele Frequencies Data
+# -----------------------------------------------------------------------------#
+df_allelefreq <- fread("data/df_allelefreq_combined.csv")
+#df_allelefreq <- df_allelefreq[population != "all"] # Filter out "all" population
+df_allelefreq$frequency <- ifelse(df_allelefreq$frequency == 0, FALLBACK_FREQ, df_allelefreq$frequency) # Use shared constant
+df_allelefreq[, allele := as.character(allele)]
+
+# -----------------------------------------------------------------------------#
+# Loci sets
+# -----------------------------------------------------------------------------#
+core_loci <- fread("data/core_CODIS_loci.csv")
+columns <- c("core_13", "identifiler_15", "expanded_20", "supplementary")
+loci_lists <- lapply(columns, function(col) {
+  core_loci |>
+    filter(get(col) == 1) |>
+    pull(locus)
+})
+names(loci_lists) <- columns
+
+# Extract all unique loci from allele frequency data
+loci_list <- df_allelefreq |> pull(marker) |> unique()
+loci_lists$autosomal_29 <- loci_list
+
+# -----------------------------------------------------------------------------#
 # Helper 1: Count shared alleles WITH multiplicity
 # -----------------------------------------------------------------------------#
 count_shared_alleles <- function(alleles1, alleles2) {
