@@ -55,6 +55,13 @@ combined_lr_results <- calculate_combined_lr(
   loci_sets = loci_lists
 )
 
+# Add matching flags for easier filtering downstream
+combined_lr_results <- combined_lr_results %>%
+  mutate(
+    is_correct_rel = (known_relationship == tested_relationship),
+    is_correct_pop = (population == tested_population)
+  )
+
 toc()
 
 cat("Generated", nrow(combined_lr_results), "combined LR calculations\n")
