@@ -48,6 +48,8 @@ if (N_PAIRS == 1) {
 toc()
 
 if (CHUNK_NUM != "") {
+  pairs <- pairs %>%
+    mutate(pair_id = paste0("c", sprintf("%02d", as.numeric(CHUNK_NUM)), "_", pair_id))
   filenam <- paste("pairs", POP, SHIP, paste0("n", N_PAIRS), paste0("chunk", CHUNK_NUM), format(Sys.time(), "%Y%m%d"), sep="_")
 } else {
   filenam <- paste("pairs", POP, SHIP, paste0("n", N_PAIRS), format(Sys.time(), "%Y%m%d"), sep="_")
