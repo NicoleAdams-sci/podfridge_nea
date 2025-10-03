@@ -363,9 +363,16 @@ if (!is.null(all_data)) {
   if (!is.null(all_data$combined_lrs_match) && nrow(all_data$combined_lrs_match) > 0) {
     log_message("Creating LR distribution plots...")
     
+    # Define PDF filename
+    pdf_filename <- file.path(output_dir, "all_matched_plots.pdf")
+    
+    # Open PDF device
+    pdf(pdf_filename, width = 12, height = 8)
+    
     # Box plot
     lr_boxplot <- plot_lr_distributions(all_data$combined_lrs_match, all_data$population_relationship_tallies)
     save_plot(lr_boxplot, "lr_distributions_boxplot_matched.png", width = 12, height = 8)
+    print(lr_boxplot)
     
   } else {
     log_message("No combined_lrs_match data available for distribution plots.")
@@ -377,6 +384,7 @@ if (!is.null(all_data)) {
     
     mean_lr_plot <- plot_mean_lr(all_data$summary_stats, all_data$population_relationship_tallies)
     save_plot(mean_lr_plot, "mean_combined_lr_matched.png", width = 12, height = 8)
+    print(mean_lr_plot)
   } else {
     log_message("No summary_stats data available for Mean LR plot.")
   }
@@ -388,13 +396,18 @@ if (!is.null(all_data)) {
     # Proportions bar plot
     proportions_plot <- plot_proportions_exceeding_cutoffs(all_data$proportions)
     save_plot(proportions_plot, "proportions_exceeding_cutoffs_matched.png", width = 10, height = 12)
+    print(proportions_plot)
     
     # Proportions heatmap
     heatmap_plot <- plot_heatmap_proportions(all_data$proportions)
     save_plot(heatmap_plot, "heatmap_proportions_fixed_cutoff_matched.png", width = 8, height = 8)
+    print(heatmap_plot)
   } else {
     log_message("No proportions data available for plotting.")
   }
+  
+  # Close PDF device
+  dev.off()
   
   log_message("All available plots created and saved successfully.")
 }
