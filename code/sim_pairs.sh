@@ -7,14 +7,14 @@
 ##SBATCH --mem=1G
 #SBATCH --time=00:30:00
 #SBATCH --array=1-240   # 24 combinations × 10 chunks
-#SBATCH --output=output/logs/sim_pairs_%A_%a.out
-#SBATCH --error=output/logs/sim_pairs_%A_%a.err
+#SBATCH --output=logs/sim_pairs_%A_%a.out
+#SBATCH --error=logs/sim_pairs_%A_%a.err
 
 # Usage: sbatch code/sim_pairs.sh 100 [100 pairs of each pop x relationship]
 # Usage: sbatch  --wrap="module load Rtidyverse; Rscript code/sim_pairs_test.R Cauc full_siblings 100" [100 pairs of just Cauc full_siblings]
 
 # Create logs directory if it doesn't exist
-mkdir -p output/logs
+mkdir -p logs
 
 # Get N_PAIRS parameter with default of 1
 N_PAIRS=${1:-1}
@@ -48,7 +48,7 @@ echo "Running job ${SLURM_ARRAY_TASK_ID}: Population=${POPULATION}, Relationship
 echo "Started at: $(date)"
 
 # Run the R simulate pairs (module 3) script
-Rscript code/sim_pairs_test.R ${POPULATION} ${RELATIONSHIP} ${N_PAIRS} ${CHUNK_NUM}
+Rscript code/sim_pairs.R ${POPULATION} ${RELATIONSHIP} ${N_PAIRS} ${CHUNK_NUM}
 
 
 echo "Completed at: $(date)"

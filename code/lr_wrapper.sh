@@ -5,7 +5,7 @@
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
 #SBATCH --mem=2G
-#SBATCH --time=02:00:00
+#SBATCH --time=04:00:00
 #SBATCH --array=1-FILE_COUNT_PLACEHOLDER
 #SBATCH --output=logs/lr_calc_%A_%a.out
 #SBATCH --error=logs/lr_calc_%A_%a.err
