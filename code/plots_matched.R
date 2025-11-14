@@ -46,6 +46,8 @@ relationship_labels <- c("Parent-Child", "Full Siblings", "Half Siblings",
 names(relationship_labels) <- relationship_order
 
 loci_set_order <- c("core_13", "identifiler_15", "expanded_20", "supplementary", "autosomal_29")
+loci_set_labels <- c("Core 13", "Identifiler 15", "Expanded 20", "Supplementary", "Autosomal 29")
+names(loci_set_labels) <- loci_set_order
 
 # Define color palette for Loci Sets
 loci_colors <- c(
@@ -70,8 +72,20 @@ load_combined_data <- function(input_dir) {
       as_tibble() %>%
       filter(is_correct_pop == TRUE) %>% filter(known_relationship == tested_relationship) %>%
       mutate(
-        known_relationship = factor(known_relationship, levels = relationship_order),
-        loci_set = factor(loci_set, levels = loci_set_order),
+        known_relationship = recode_factor(known_relationship,
+                                           "parent_child" = "Parent-Child",
+                                           "full_siblings" = "Full Siblings", 
+                                           "half_siblings" = "Half Siblings",
+                                           "cousins" = "Cousins",
+                                           "second_cousins" = "Second Cousins",
+                                           "unrelated" = "Unrelated"),
+        loci_set = recode_factor(loci_set,
+                                 "core_13" = "Core 13",
+                                 "identifiler_15" = "Identifiler 15",
+                                 "expanded_20" = "Expanded 20", 
+                                 "supplementary" = "Supplementary",
+                                 "autosomal_29" = "Autosomal 29"),
+        population = factor(population, levels = c("AfAm", "Asian", "Cauc", "Hispanic", "all")),
         combined_LR = as.numeric(combined_LR)
       )
     
@@ -97,8 +111,20 @@ load_combined_data <- function(input_dir) {
     dt_matched %>% 
       as_tibble() %>%
       mutate(
-        known_relationship = factor(known_relationship, levels = relationship_order),
-        loci_set = factor(loci_set, levels = loci_set_order),
+        known_relationship = recode_factor(known_relationship,
+                                            "parent_child" = "Parent-Child",
+                                            "full_siblings" = "Full Siblings", 
+                                            "half_siblings" = "Half Siblings",
+                                            "cousins" = "Cousins",
+                                            "second_cousins" = "Second Cousins",
+                                            "unrelated" = "Unrelated"),
+        loci_set = recode_factor(loci_set,
+                                 "core_13" = "Core 13",
+                                 "identifiler_15" = "Identifiler 15",
+                                 "expanded_20" = "Expanded 20", 
+                                 "supplementary" = "Supplementary",
+                                 "autosomal_29" = "Autosomal 29"),
+        population = factor(population, levels = c("AfAm", "Asian", "Cauc", "Hispanic", "all"))
       )
     
   }, error = function(e) {
@@ -119,9 +145,20 @@ load_combined_data <- function(input_dir) {
     dt_matched %>% 
       as_tibble() %>%
       mutate(
-        known_relationship = factor(known_relationship, levels = relationship_order),
-        loci_set = factor(loci_set, levels = loci_set_order),
-        population = factor(population, levels = c("AfAm", "Asian", "Cauc", "Hispanic"))
+        known_relationship = recode_factor(known_relationship,
+                                           "parent_child" = "Parent-Child",
+                                           "full_siblings" = "Full Siblings", 
+                                           "half_siblings" = "Half Siblings",
+                                           "cousins" = "Cousins",
+                                           "second_cousins" = "Second Cousins",
+                                           "unrelated" = "Unrelated"),
+        loci_set = recode_factor(loci_set,
+                                 "core_13" = "Core 13",
+                                 "identifiler_15" = "Identifiler 15",
+                                 "expanded_20" = "Expanded 20", 
+                                 "supplementary" = "Supplementary",
+                                 "autosomal_29" = "Autosomal 29"),
+        population = factor(population, levels = c("AfAm", "Asian", "Cauc", "Hispanic", "all"))
       )
     
   }, error = function(e) {
@@ -165,12 +202,12 @@ plot_lr_distributions <- function(lrs_data, population_relationship_tallies) {
   )
   
   # Define a color palette
-  pop_colors <- c("#E41A1C", "#377EB8", "#4DAF4A", "#984EA3")
+  pop_colors <- c("#E41A1C", "#377EB8", "#4DAF4A", "#984EA3", "#FF7F00")
   names(pop_colors) <- levels(lrs_data$population)
   
   plot_obj <- ggplot(lrs_data, aes(x = known_relationship, y = combined_LR, fill = population)) +
     geom_boxplot(position = position_dodge(width = 0.85), alpha = 0.7, outlier.size = 0.5) +
-    facet_wrap(~ loci_set, scales = "fixed") +
+    facet_wrap(~ loci_set, scales = "fixed", labeller = labeller(loci_set = loci_set_labels)) +
     scale_y_log10(labels = scales::trans_format("log10", scales::math_format(10^.x))) +
     scale_fill_manual(values = pop_colors, labels = legend_labels) +
     labs(
@@ -218,7 +255,7 @@ plot_mean_lr <- function(summary_data, population_relationship_tallies) {
   )
   
   # Define a color palette
-  pop_colors <- c("#E41A1C", "#377EB8", "#4DAF4A", "#984EA3")
+  pop_colors <- c("#E41A1C", "#377EB8", "#4DAF4A", "#984EA3", "#FF7F00")
   names(pop_colors) <- levels(summary_data$population)
   
   plot_obj <- ggplot(summary_data, aes(x = loci_set, y = mean_LR, group = population, color = population)) +
@@ -252,7 +289,7 @@ plot_mean_lr <- function(summary_data, population_relationship_tallies) {
 
 plot_proportions_exceeding_cutoffs <- function(proportions_data) {
   # Define a color palette
-  pop_colors <- c("#E41A1C", "#377EB8", "#4DAF4A", "#984EA3")
+  pop_colors <- c("#E41A1C", "#377EB8", "#4DAF4A", "#984EA3", "#FF7F00")
   names(pop_colors) <- levels(proportions_data$population)
   
   # Convert to long format for easy facetting
@@ -269,7 +306,7 @@ plot_proportions_exceeding_cutoffs <- function(proportions_data) {
     
     plot_obj <- ggplot(proportions_long, aes(x = known_relationship, y = Proportion, fill = population)) +
       geom_bar(stat = "identity", position = position_dodge(width = 0.9)) +
-      facet_grid(loci_set ~ Cutoff_Type) +
+      facet_grid(loci_set ~ Cutoff_Type, labeller = labeller(loci_set = loci_set_labels)) +
       scale_fill_manual(values = pop_colors) +
       labs(
         title = "Proportions Exceeding Likelihood Cut-offs",
