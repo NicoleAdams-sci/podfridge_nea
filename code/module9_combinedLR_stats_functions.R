@@ -38,6 +38,8 @@ calculate_summary_stats <- function(combined_lrs) {
 }
 
 calculate_ratio_stats <- function(all_combined) {
+  all_combined <- as.data.table(all_combined)
+  
   # 1. Define Correct Population LRs (LR_C)
   # Ensure the correct LR is calculated using the true population for the hypothesis tested.
   combined_lrs_correct <- all_combined[
@@ -115,7 +117,8 @@ calculate_ratio_stats <- function(all_combined) {
     ) %>%
     ungroup()
   
-  return(ratio_summary)
+  return(list(ratio_summary = as.data.frame(ratio_summary),
+              combined_lrs_ratio = as.data.frame(combined_lrs_ratio)))
 }
 
 # Function to calculate cut-off values for 1%, 0.1%, and 0.01% FPR
