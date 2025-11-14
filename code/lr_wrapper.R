@@ -36,8 +36,8 @@ cat("Loading reference data...\n")
 kinship_matrix <- fread("data/kinship_coefficients.csv")
 
 # Define testing parameters (fixed for all calculations)
-tested_relationships <- c("parent_child", "full_siblings", "half_siblings", "cousins", "second_cousins")
-tested_populations <- c("AfAm", "Cauc", "Hispanic", "Asian")
+tested_relationships <- c("parent_child", "full_siblings", "half_siblings", "cousins", "second_cousins", "unrelated")
+tested_populations <- c("AfAm", "Cauc", "Hispanic", "Asian", "all")
 
 #### Read and validate pairs data ####
 cat("Reading pairs data...\n")
