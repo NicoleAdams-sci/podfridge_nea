@@ -6,7 +6,7 @@
 #SBATCH --ntasks-per-node=1
 ##SBATCH --mem=1G
 #SBATCH --time=00:30:00
-#SBATCH --array=1-240   # 24 combinations × 10 chunks
+#SBATCH --array=1-300   # 5 populations × 6 relationships × 10 chunks
 #SBATCH --output=logs/sim_pairs_%A_%a.out
 #SBATCH --error=logs/sim_pairs_%A_%a.err
 
@@ -23,7 +23,7 @@ N_PAIRS=${1:-1}
 module load Rtidyverse
 
 # Define populations and relationships
-POPULATIONS=("AfAm" "Cauc" "Hispanic" "Asian")
+POPULATIONS=("AfAm" "Cauc" "Hispanic" "Asian" "all")
 RELATIONSHIPS=("parent_child" "full_siblings" "half_siblings" "cousins" "second_cousins" "unrelated")
 
 # Calculate which combination and chunk based on SLURM_ARRAY_TASK_ID
