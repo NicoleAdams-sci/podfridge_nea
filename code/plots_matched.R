@@ -49,14 +49,6 @@ loci_set_order <- c("core_13", "identifiler_15", "expanded_20", "supplementary",
 loci_set_labels <- c("Core 13", "Identifiler 15", "Expanded 20", "Supplementary", "Autosomal 29")
 names(loci_set_labels) <- loci_set_order
 
-# Define color palette for Loci Sets
-loci_colors <- c(
-  "core_13" = "#1b9e77",        # Teal/Green
-  "identifiler_15" = "#d95f02", # Orange
-  "expanded_20" = "#7570b3",    # Purple
-  "supplementary" = "#e7298a",  # Pink
-  "autosomal_29" = "#66a61e"    # Light Green
-)
 
 # --- Data Loading Function ---
 
@@ -203,7 +195,6 @@ plot_lr_distributions <- function(lrs_data, population_relationship_tallies) {
   
   # Define a color palette
   pop_colors <- c("#E41A1C", "#377EB8", "#4DAF4A", "#984EA3", "#FF7F00")
-  names(pop_colors) <- levels(lrs_data$population)
   
   plot_obj <- ggplot(lrs_data, aes(x = known_relationship, y = combined_LR, fill = population)) +
     geom_boxplot(position = position_dodge(width = 0.85), alpha = 0.7, outlier.size = 0.5) +
@@ -256,7 +247,6 @@ plot_mean_lr <- function(summary_data, population_relationship_tallies) {
   
   # Define a color palette
   pop_colors <- c("#E41A1C", "#377EB8", "#4DAF4A", "#984EA3", "#FF7F00")
-  names(pop_colors) <- levels(summary_data$population)
   
   plot_obj <- ggplot(summary_data, aes(x = loci_set, y = mean_LR, group = population, color = population)) +
       geom_line(size = 1.2) +
@@ -290,7 +280,6 @@ plot_mean_lr <- function(summary_data, population_relationship_tallies) {
 plot_proportions_exceeding_cutoffs <- function(proportions_data) {
   # Define a color palette
   pop_colors <- c("#E41A1C", "#377EB8", "#4DAF4A", "#984EA3", "#FF7F00")
-  names(pop_colors) <- levels(proportions_data$population)
   
   # Convert to long format for easy facetting
     proportions_long <- proportions_data %>%
