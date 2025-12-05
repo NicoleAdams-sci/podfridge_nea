@@ -53,11 +53,11 @@ relationship_order <- c("parent_child", "full_siblings", "half_siblings",
                         "cousins", "second_cousins", "unrelated")
 relationship_labels <- c("Parent-Child", "Full Siblings", "Half Siblings", 
                          "Cousins", "Second Cousins", "Unrelated")
-names(relationship_labels) <- relationship_order
+#names(relationship_labels) <- relationship_order
 
 loci_set_order <- c("core_13", "identifiler_15", "expanded_20", "supplementary", "autosomal_29")
 loci_set_labels <- c("Core 13", "Identifiler 15", "Expanded 20", "Supplementary", "Autosomal 29")
-names(loci_set_labels) <- loci_set_order
+#names(loci_set_labels) <- loci_set_order
 
 # Define color palette for populations (frequency sources)
 true_pop_colors <- c(
@@ -76,7 +76,7 @@ names(light_pop_colors) <- names(true_pop_colors)
 
 ######## Read in combined_LR files ########
 # combined_LR_all.rds made in analyze_lr_outputs.R
-all_combined_file <- file.path(output_dir, "combined_LR_all.rds")
+all_combined_file <- file.path("output", input_dir, "combined_LR_all.rds")
 all_combined <- readRDS(all_combined_file)
 
 ######## Make sure LR is numeric ######## 
@@ -122,9 +122,9 @@ for (rel in relationships_to_test) {
                  names_to = "Cutoff_Type", values_to = "Proportion",
                  names_prefix = "proportion_exceeding_")
   
-  proportions_long$Cutoff_Type <- factor(proportions_long$Cutoff_Type, 
-                                         levels = c("0_01", "0_1","1", "fixed"),
-                                         labels = c( "0.01% FPR", "0.1% FPR", "1% FPR","Fixed (1.00)"))
+  proportions_long$Cutoff_Type <- factor(proportions_long$Cutoff_Type,
+                                         levels = c("fixed", "1", "0_1","0_01"),
+                                         labels = c("Fixed (1.00)", "1% FPR", "0.1% FPR", "0.01% FPR"))
   
   proportions_long <- proportions_long %>%
     mutate(
@@ -140,7 +140,8 @@ for (rel in relationships_to_test) {
                                "identifiler_15" = "Identifiler 15",
                                "expanded_20" = "Expanded 20", 
                                "supplementary" = "Supplementary",
-                               "autosomal_29" = "Autosomal 29")
+                               "autosomal_29" = "Autosomal 29"),
+      population = factor(population, levels = c("AfAm", "Asian", "Cauc", "Hispanic", "all", "unrelated"))
     )
   
   
