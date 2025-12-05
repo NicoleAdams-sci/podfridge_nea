@@ -128,7 +128,8 @@ calculate_cutoffs <- function(all_combined, fp_rates) {
   cutoffs <- all_combined %>%
     # 1. Filter: Identify the distribution of LRs for true "unrelated" pairs
     #    The 'tested_relationship' must be the one corresponding to the LR value (e.g., Parent/Child)
-    filter(known_relationship == "unrelated") %>% 
+    filter(known_relationship == "unrelated",
+           is_correct_pop == TRUE) %>% 
     
     # 2. Group: Calculate separate cutoffs for each tested frequency file and loci set
     group_by(loci_set, tested_population, tested_relationship) %>%
@@ -199,10 +200,8 @@ calculate_proportions_exceeding_cutoffs <- function(all_combined, cutoffs) {
       proportion_exceeding_0_01  = sum(exceeds_cutoff_0_01, na.rm = TRUE) / n(),
       n_related = n(),
       .groups = 'drop'
-    ) %>%
-    # Filter out 'unrelated' pairs as they were used to define the cutoffs (FPR)
+    )
     # This result table focuses on the True Positive Rate (TPR) for related pairs.
-    filter(known_relationship != "unrelated")
   
   return(proportions_exceeding)
 }
