@@ -1,0 +1,6 @@
+scenario_id,structure_label,population,n_focal,parent_child,full_siblings,half_siblings,cousins,second_cousins,unrelated,notes
+1,AfAm_extended,AfAm,8,2,3,1,2,1,0,"Extended AfAm family with parents, siblings, half-sib, and cousins"
+2,Cauc_nuclear,Cauc,5,2,2,0,0,0,0,"Classic nuclear Cauc family"
+3,Hispanic_large,Hispanic,6,2,4,1,2,1,0,"Larger Hispanic family emphasizing sibling group"
+4,Asian_half_sib_focus,Asian,4,1,1,2,1,0,0,"Asian family scenario highlighting half-siblings"
+5,All_unrelated_pool,all,3,0,0,0,0,0,6,"All-pop pool of unrelated individuals for null testing"

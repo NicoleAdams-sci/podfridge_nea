@@ -1,0 +1,16 @@
+population,known_relationship,tested_relationship,test,statistic,p_value,significant
+all,full_siblings,parent_child,Chi-square (loci effect),28.8792034300698,0.000499750124937531,TRUE
+all,half_siblings,parent_child,Chi-square (loci effect),40.735846368412,0.000499750124937531,TRUE
+all,half_siblings,full_siblings,Chi-square (loci effect),17.4400649157972,0.000999500249875062,TRUE
+AfAm,full_siblings,parent_child,Chi-square (loci effect),31.813846535753,0.000499750124937531,TRUE
+AfAm,half_siblings,parent_child,Chi-square (loci effect),25.10008496555,0.000499750124937531,TRUE
+AfAm,half_siblings,full_siblings,Chi-square (loci effect),37.9789473684211,0.000499750124937531,TRUE
+Asian,full_siblings,parent_child,Chi-square (loci effect),33.2157554379777,0.000499750124937531,TRUE
+Asian,half_siblings,parent_child,Chi-square (loci effect),18.4350919967677,0.00149925037481259,TRUE
+Asian,half_siblings,full_siblings,Chi-square (loci effect),23.8129640332548,0.000499750124937531,TRUE
+Cauc,full_siblings,parent_child,Chi-square (loci effect),25.6073905580597,0.000499750124937531,TRUE
+Cauc,half_siblings,parent_child,Chi-square (loci effect),29.3337707427759,0.000499750124937531,TRUE
+Cauc,half_siblings,full_siblings,Chi-square (loci effect),50.6726908449345,0.000499750124937531,TRUE
+Hispanic,full_siblings,parent_child,Chi-square (loci effect),23.8993106429995,0.000499750124937531,TRUE
+Hispanic,half_siblings,parent_child,Chi-square (loci effect),42.1361444492981,0.000499750124937531,TRUE
+Hispanic,half_siblings,full_siblings,Chi-square (loci effect),35.1825991700262,0.000499750124937531,TRUE

@@ -1,0 +1,780 @@
+---
+title: "Kinship LR Simulation Analysis"
+author: "Generated Analysis Report"
+date: "`r format(Sys.time(), '%B %d, %Y')`"
+output:
+  html_document:
+    toc: true
+    toc_depth: 3
+    toc_float: true
+    number_sections: true
+    code_folding: hide
+    theme: flatly
+    highlight: tango
+params:
+  input_file: NULL
+  output_dir: "../output/analysis_results"
+  fp_rates: !r c(1, 0.1, 0.01)
+  fixed_thresholds: !r c(1, 10, 100, 1000)
+  use_toy_data: true
+  n_pairs_per_group: 500
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE,
+  warning = FALSE,
+  message = FALSE,
+  fig.width = 12,
+  fig.height = 8,
+  fig.align = "center"
+)
+
+# Load required libraries
+suppressPackageStartupMessages({
+  library(tidyverse)
+  library(data.table)
+  library(scales)
+  library(knitr)
+  library(kableExtra)
+})
+
+# Create output directory
+dir.create(params$output_dir, recursive = TRUE, showWarnings = FALSE)
+```
+
+# Overview
+
+This report analyzes kinship likelihood ratio (LR) simulations comparing two tested hypotheses:
+
+1. **Parent-Child Hypothesis**: LR for testing if pairs are parent-child vs unrelated
+2. **Full-Siblings Hypothesis**: LR for testing if pairs are full siblings vs unrelated
+
+For each hypothesis, we examine performance across:
+
+- **True positives**: Correctly identifying the target relationship
+- **Related false positives**: Other relatives incorrectly exceeding threshold (e.g., half-siblings misidentified as full siblings)
+- **Unrelated false positives**: Unrelated pairs incorrectly exceeding threshold
+
+# Data Loading and Preprocessing
+
+```{r generate-toy-data}
+# Generate toy simulation data for testing the analysis pipeline
+set.seed(42)
+
+# Define factor levels
+population_order <- c("all", "AfAm", "Asian", "Cauc", "Hispanic")
+relationship_order <- c("parent_child", "full_siblings", "half_siblings", 
+                        "cousins", "second_cousins", "unrelated")
+loci_set_order <- c("core_13", "identifiler_15", "expanded_20", 
+                    "supplementary", "autosomal_29")
+
+# ONLY these two hypotheses are tested
+tested_hypotheses <- c("parent_child", "full_siblings")
+
+# Number of loci in each set
+loci_counts <- c(
+  "core_13" = 13,
+  "identifiler_15" = 15,
+  "expanded_20" = 20,
+  "supplementary" = 23,
+  "autosomal_29" = 29
+)
+
+# Mean per-locus log10(LR) matrix for the TWO tested hypotheses only
+mean_log10_lr_matrix <- list(
+  # Testing PARENT-CHILD hypothesis
+  parent_child = c(
+    "parent_child" = 0.40,      # True positive
+    "full_siblings" = 0.10,     # Related FP (siblings look somewhat like PC)
+    "half_siblings" = -0.05,    # Related FP
+    "cousins" = -0.25,          # Related FP  
+    "second_cousins" = -0.30,   # Related FP
+    "unrelated" = -0.35         # Unrelated FP
+  ),
+  # Testing FULL-SIBLING hypothesis
+  full_siblings = c(
+    "parent_child" = 0.35,      # Related FP (PC looks like FS)
+    "full_siblings" = 0.25,     # True positive
+    "half_siblings" = 0.063,    # Related FP - POSITIVE! (key finding)
+    "cousins" = -0.232,         # Related FP
+    "second_cousins" = -0.283,  # Related FP
+    "unrelated" = -0.340        # Unrelated FP
+  )
+)
+
+# SD of per-locus log10(LR)
+sd_log10_lr_per_locus <- 0.20
+
+# Population effects (slight variation by ancestry)
+pop_effects <- c(
+  "all" = 0,
+  "AfAm" = 0.015,
+  "Asian" = -0.012,
+  "Cauc" = 0.008,
+  "Hispanic" = -0.008
+)
+
+n_pairs <- params$n_pairs_per_group
+
+# Generate data - ONLY for parent_child and full_siblings hypotheses
+generate_toy_data <- function() {
+  all_data <- list()
+  
+  for (pop in population_order) {
+    for (known_rel in relationship_order) {
+      for (tested_rel in tested_hypotheses) {  # Only PC and FS hypotheses
+        for (loci_set in loci_set_order) {
+          n_loci <- loci_counts[loci_set]
+          
+          # Get mean per-locus LR for this known/tested combination
+          mean_per_locus <- mean_log10_lr_matrix[[tested_rel]][known_rel]
+          sd_per_locus <- sd_log10_lr_per_locus
+          
+          # Add population effect
+          pop_effect <- pop_effects[pop]
+          
+          # Combined LR is sum of per-locus log10(LR)
+          mean_combined <- n_loci * (mean_per_locus + pop_effect)
+          sd_combined <- sqrt(n_loci) * sd_per_locus
+          
+          log10_lr <- rnorm(n_pairs, mean = mean_combined, sd = sd_combined)
+          combined_lr <- 10^log10_lr
+          
+          group_data <- data.table(
+            batch_id = 1,
+            pair_id = 1:n_pairs,
+            population = pop,
+            known_relationship = known_rel,
+            tested_relationship = tested_rel,
+            tested_population = pop,
+            loci_set = loci_set,
+            combined_LR = combined_lr,
+            is_correct_pop = TRUE
+          )
+          
+          all_data[[length(all_data) + 1]] <- group_data
+        }
+      }
+    }
+  }
+  
+  rbindlist(all_data)
+}
+
+if (params$use_toy_data) {
+  cat("Generating toy simulation data...\n")
+  all_combined <- generate_toy_data()
+  cat("Generated", nrow(all_combined), "rows of toy data\n")
+} else {
+  cat("Loading data from:", params$input_file, "\n")
+  all_combined <- readRDS(params$input_file)
+  setDT(all_combined)
+}
+
+cat("Total rows:", nrow(all_combined), "\n")
+cat("Unique pairs per group:", params$n_pairs_per_group, "\n")
+cat("Tested hypotheses:", paste(tested_hypotheses, collapse = ", "), "\n")
+```
+
+```{r define-factors}
+relationship_labels <- c(
+  "parent_child" = "Parent-Child",
+  "full_siblings" = "Full Siblings", 
+  "half_siblings" = "Half Siblings",
+  "cousins" = "Cousins",
+  "second_cousins" = "Second Cousins",
+  "unrelated" = "Unrelated"
+)
+
+loci_set_labels <- c(
+  "core_13" = "Core 13",
+  "identifiler_15" = "Identifiler 15",
+  "expanded_20" = "Expanded 20",
+  "supplementary" = "Supplementary 23",
+  "autosomal_29" = "Autosomal 29"
+)
+
+population_labels <- c(
+  "all" = "All Populations",
+  "AfAm" = "African American",
+  "Asian" = "Asian",
+  "Cauc" = "Caucasian",
+  "Hispanic" = "Hispanic"
+)
+
+all_combined[, `:=`(
+  population = factor(population, levels = population_order),
+  tested_population = factor(tested_population, levels = population_order),
+  known_relationship = factor(known_relationship, levels = relationship_order),
+  tested_relationship = factor(tested_relationship, levels = tested_hypotheses),
+  loci_set = factor(loci_set, levels = loci_set_order)
+)]
+
+# Add log10_LR column
+all_combined[, log10_LR := log10(pmax(combined_LR, 1e-20))]
+
+population_colors <- c(
+  "all" = "#FF7F00",
+  "AfAm" = "#E41A1C",
+  "Asian" = "#377EB8",
+  "Cauc" = "#4DAF4A",
+  "Hispanic" = "#984EA3"
+)
+
+relationship_colors <- c(
+  "parent_child" = "#1b9e77",
+  "full_siblings" = "#d95f02",
+  "half_siblings" = "#7570b3",
+  "cousins" = "#e7298a",
+  "second_cousins" = "#66a61e",
+  "unrelated" = "#666666"
+)
+```
+
+## Data Summary
+
+```{r data-summary}
+# Show counts by population and known relationship
+data_summary <- all_combined[, .(
+  n_pairs = uniqueN(paste(batch_id, pair_id)),
+  n_tested_hypotheses = uniqueN(tested_relationship),
+  n_loci_sets = uniqueN(loci_set)
+), by = .(population, known_relationship)]
+
+data_summary_wide <- dcast(data_summary, known_relationship ~ population, 
+                           value.var = "n_pairs", fill = 0)
+
+kable(data_summary_wide, 
+      caption = "Number of simulated pairs by population and known relationship",
+      format.args = list(big.mark = ",")) %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"))
+
+cat("\nEach cell shows", params$n_pairs_per_group, "pairs tested under", 
+    length(tested_hypotheses), "hypotheses (Parent-Child, Full-Siblings) across", 
+    length(loci_set_order), "loci sets.\n")
+```
+
+# Combined LR Distributions
+
+## Parent-Child Hypothesis {.tabset}
+
+Testing: Are these pairs parent-child vs unrelated?
+
+### All Populations Combined
+
+```{r lr-dist-pc-all, fig.height=8}
+plot_lr_by_hypothesis <- function(data, tested_hyp, pop_filter = NULL) {
+  subset_data <- data[tested_relationship == tested_hyp]
+  if (!is.null(pop_filter)) {
+    subset_data <- subset_data[population == pop_filter]
+  }
+  
+  title_pop <- if (is.null(pop_filter)) "All Populations" else population_labels[pop_filter]
+  
+  ggplot(subset_data, aes(x = loci_set, y = log10_LR, fill = known_relationship)) +
+    geom_boxplot(outlier.size = 0.3, outlier.alpha = 0.2) +
+    facet_wrap(~known_relationship, scales = "free_y", ncol = 3,
+               labeller = labeller(known_relationship = relationship_labels)) +
+    scale_fill_manual(values = relationship_colors, guide = "none") +
+    scale_x_discrete(labels = loci_set_labels) +
+    geom_hline(yintercept = 0, linetype = "dashed", color = "red", alpha = 0.7) +
+    labs(
+      title = paste("log10(Combined LR) - Testing", relationship_labels[tested_hyp], "Hypothesis"),
+      subtitle = paste(title_pop, "| Red line = LR=1 (no evidence either way)"),
+      x = "Loci Set",
+      y = "log10(Combined LR)"
+    ) +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 8))
+}
+
+plot_lr_by_hypothesis(all_combined, "parent_child", "all")
+```
+
+### By Population
+
+```{r lr-dist-pc-bypop, fig.height=12, fig.width=14}
+subset_pc <- all_combined[tested_relationship == "parent_child"]
+
+ggplot(subset_pc, aes(x = loci_set, y = log10_LR, fill = known_relationship)) +
+  geom_boxplot(outlier.size = 0.3, outlier.alpha = 0.2) +
+  facet_grid(population ~ known_relationship, scales = "free_y",
+             labeller = labeller(population = population_labels,
+                                 known_relationship = relationship_labels)) +
+  scale_fill_manual(values = relationship_colors, guide = "none") +
+  scale_x_discrete(labels = loci_set_labels) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "red", alpha = 0.5) +
+  labs(
+    title = "log10(Combined LR) - Testing Parent-Child Hypothesis",
+    subtitle = "Rows = Population, Columns = True Relationship. Red line = LR=1",
+    x = "Loci Set",
+    y = "log10(Combined LR)"
+  ) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 7),
+        strip.text = element_text(size = 8))
+```
+
+## Full-Siblings Hypothesis {.tabset}
+
+Testing: Are these pairs full siblings vs unrelated?
+
+### All Populations Combined
+
+```{r lr-dist-fs-all, fig.height=8}
+plot_lr_by_hypothesis(all_combined, "full_siblings", "all")
+```
+
+### By Population
+
+```{r lr-dist-fs-bypop, fig.height=12, fig.width=14}
+subset_fs <- all_combined[tested_relationship == "full_siblings"]
+
+ggplot(subset_fs, aes(x = loci_set, y = log10_LR, fill = known_relationship)) +
+  geom_boxplot(outlier.size = 0.3, outlier.alpha = 0.2) +
+  facet_grid(population ~ known_relationship, scales = "free_y",
+             labeller = labeller(population = population_labels,
+                                 known_relationship = relationship_labels)) +
+  scale_fill_manual(values = relationship_colors, guide = "none") +
+  scale_x_discrete(labels = loci_set_labels) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "red", alpha = 0.5) +
+  labs(
+    title = "log10(Combined LR) - Testing Full-Siblings Hypothesis",
+    subtitle = "Rows = Population, Columns = True Relationship. Red line = LR=1",
+    x = "Loci Set",
+    y = "log10(Combined LR)"
+  ) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 7),
+        strip.text = element_text(size = 8))
+```
+
+## Mean log10(LR) Summary
+
+```{r mean-lr-summary, fig.height=8, fig.width=12}
+# Calculate mean log10(LR) for each combination at 29 loci
+lr_means <- all_combined[loci_set == "autosomal_29", .(
+  mean_log10_LR = mean(log10_LR),
+  sd_log10_LR = sd(log10_LR),
+  n = .N
+), by = .(population, known_relationship, tested_relationship)]
+
+# Plot: facet by tested_relationship and population
+ggplot(lr_means, aes(x = known_relationship, y = mean_log10_LR, fill = known_relationship)) +
+  geom_col() +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "red") +
+  facet_grid(tested_relationship ~ population, 
+             labeller = labeller(population = population_labels,
+                                 tested_relationship = relationship_labels)) +
+  scale_fill_manual(values = relationship_colors, guide = "none") +
+  scale_x_discrete(labels = function(x) str_wrap(relationship_labels[x], width = 8)) +
+  labs(
+    title = "Mean log10(Combined LR) at 29 Autosomal Loci",
+    subtitle = "Rows = Tested Hypothesis, Columns = Population. Red line = LR=1.",
+    x = "True (Known) Relationship",
+    y = "Mean log10(Combined LR)"
+  ) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 8),
+        strip.text = element_text(size = 9))
+
+fwrite(lr_means, file.path(params$output_dir, "mean_log10_LR_summary.csv"))
+```
+
+**How to interpret:**
+
+- **Bars above red line**: mean LR > 1, evidence FOR the tested hypothesis
+- **Bars below red line**: mean LR < 1, evidence AGAINST the tested hypothesis
+- **True positives** should have tall positive bars (e.g., full_siblings under Full-Siblings hypothesis)
+- **Related false positives** may have positive bars (e.g., half-siblings under Full-Siblings hypothesis!)
+
+# Proportions Exceeding Thresholds
+
+## Calculate Proportions
+
+```{r calculate-proportions}
+fixed_thresholds <- params$fixed_thresholds
+
+# Calculate proportions for all combinations
+proportions_all <- all_combined[, {
+  props <- sapply(fixed_thresholds, function(t) mean(combined_LR > t, na.rm = TRUE))
+  names(props) <- paste0("prop_LR_gt_", fixed_thresholds)
+  as.list(c(n = .N, props))
+}, by = .(population, known_relationship, tested_relationship, loci_set)]
+
+proportions_all[, n_loci := loci_counts[as.character(loci_set)]]
+
+# Add classification column
+proportions_all[, classification := fcase(
+  as.character(known_relationship) == as.character(tested_relationship), "True Positive",
+  known_relationship == "unrelated", "Unrelated FP",
+  default = "Related FP"
+)]
+
+fwrite(proportions_all, file.path(params$output_dir, "proportions_all_combinations.csv"))
+```
+
+## Parent-Child Hypothesis: Proportion with LR > 1
+
+```{r prop-pc, fig.height=8, fig.width=14}
+plot_proportions <- function(data, tested_hyp, threshold_col = "prop_LR_gt_1") {
+  subset_data <- data[tested_relationship == tested_hyp]
+  
+  ggplot(subset_data, aes(x = loci_set, y = .data[[threshold_col]], 
+                          color = known_relationship, group = known_relationship)) +
+    geom_line(linewidth = 1) +
+    geom_point(size = 2) +
+    facet_wrap(~population, ncol = 5, labeller = labeller(population = population_labels)) +
+    scale_color_manual(values = relationship_colors, labels = relationship_labels) +
+    scale_x_discrete(labels = loci_set_labels) +
+    scale_y_continuous(labels = percent_format(), limits = c(0, 1)) +
+    labs(
+      title = paste("Proportion with LR > 1 - Testing", relationship_labels[tested_hyp], "Hypothesis"),
+      subtitle = "By population and true relationship",
+      x = "Loci Set",
+      y = "Proportion Exceeding LR > 1",
+      color = "True Relationship"
+    ) +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 8),
+          legend.position = "bottom")
+}
+
+plot_proportions(proportions_all, "parent_child")
+```
+
+## Full-Siblings Hypothesis: Proportion with LR > 1
+
+```{r prop-fs, fig.height=8, fig.width=14}
+plot_proportions(proportions_all, "full_siblings")
+```
+
+**Key observation:** Note whether the half-siblings line is INCREASING or DECREASING with more loci. An increasing trend means more loci → more false identifications!
+
+## Comparison: Parent-Child vs Full-Siblings Hypothesis
+
+```{r compare-hypotheses, fig.height=8, fig.width=14}
+compare_data <- proportions_all[loci_set == "autosomal_29"]
+
+ggplot(compare_data, aes(x = known_relationship, y = prop_LR_gt_1, 
+                         fill = tested_relationship)) +
+  geom_col(position = "dodge") +
+  facet_wrap(~population, ncol = 5, labeller = labeller(population = population_labels)) +
+  scale_fill_manual(values = c("parent_child" = "#1b9e77", "full_siblings" = "#d95f02"),
+                    labels = relationship_labels) +
+  scale_x_discrete(labels = function(x) str_wrap(relationship_labels[x], width = 10)) +
+  scale_y_continuous(labels = percent_format()) +
+  labs(
+    title = "Comparison: Parent-Child vs Full-Siblings Hypothesis (29 Loci)",
+    subtitle = "Which hypothesis better discriminates each true relationship?",
+    x = "True Relationship",
+    y = "Proportion with LR > 1",
+    fill = "Tested Hypothesis"
+  ) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        legend.position = "bottom")
+```
+
+# Statistical Tests
+
+## Test 1: Effect of Loci Set (Chi-square) - By Population
+
+**What this tests:** Does the proportion exceeding LR > 1 differ significantly across loci sets?
+
+**Interpretation:**
+
+- **p < 0.05 + INCREASING trend**: More loci increases the rate (good for TP, bad for FP)
+- **p < 0.05 + DECREASING trend**: More loci decreases the rate (bad for TP, good for FP)
+- **p >= 0.05**: No significant effect of number of loci
+
+```{r chi-sq-loci}
+test_loci_effect <- function(data, pop, known_rel, tested_rel, threshold_col = "prop_LR_gt_1") {
+  subset <- data[population == pop & known_relationship == known_rel & tested_relationship == tested_rel]
+  
+  if (nrow(subset) < 2) return(NULL)
+  
+  n_exceed <- round(subset[[threshold_col]] * subset$n)
+  n_not_exceed <- subset$n - n_exceed
+  
+  if (any(n_exceed < 0) || any(n_not_exceed < 0)) return(NULL)
+  if (sum(n_exceed) == 0 || sum(n_not_exceed) == 0) return(NULL)
+  
+  contingency <- matrix(c(n_exceed, n_not_exceed), nrow = 2, byrow = TRUE,
+                       dimnames = list(c("Exceed", "Not_Exceed"), as.character(subset$loci_set)))
+  
+  test_result <- tryCatch(
+    chisq.test(contingency, simulate.p.value = TRUE, B = 2000),
+    error = function(e) NULL
+  )
+  
+  if (is.null(test_result)) return(NULL)
+  
+  data.frame(
+    population = pop,
+    known_relationship = known_rel,
+    tested_relationship = tested_rel,
+    statistic = test_result$statistic,
+    p_value = test_result$p.value,
+    significant = test_result$p.value < 0.05
+  )
+}
+
+# Run for all combinations
+loci_tests <- rbindlist(lapply(population_order, function(pop) {
+  rbindlist(lapply(relationship_order, function(known_rel) {
+    rbindlist(lapply(tested_hypotheses, function(tested_rel) {
+      test_loci_effect(proportions_all, pop, known_rel, tested_rel)
+    }))
+  }))
+}))
+
+# Display for Full-Siblings hypothesis
+kable(loci_tests[tested_relationship == "full_siblings", 
+                 .(population, known_relationship, statistic, p_value, significant)],
+      caption = "Chi-square: Loci effect on LR > 1 (Full-Siblings Hypothesis)",
+      digits = c(0, 0, 2, 4, 0)) %>%
+  kable_styling(bootstrap_options = c("striped", "hover"))
+
+# Display for Parent-Child hypothesis
+kable(loci_tests[tested_relationship == "parent_child", 
+                 .(population, known_relationship, statistic, p_value, significant)],
+      caption = "Chi-square: Loci effect on LR > 1 (Parent-Child Hypothesis)",
+      digits = c(0, 0, 2, 4, 0)) %>%
+  kable_styling(bootstrap_options = c("striped", "hover"))
+
+fwrite(loci_tests, file.path(params$output_dir, "stat_test_loci_effect.csv"))
+```
+
+## Test 2: Effect of Population (Chi-square) - At 29 Loci
+
+**What this tests:** Does the proportion exceeding LR > 1 differ across populations?
+
+**Interpretation:**
+
+- **p < 0.05**: Population significantly affects rates → allele frequency database matters
+- **p >= 0.05**: Consistent across populations
+
+```{r chi-sq-pop}
+test_pop_effect <- function(data, known_rel, tested_rel, threshold_col = "prop_LR_gt_1") {
+  subset <- data[known_relationship == known_rel & 
+                 tested_relationship == tested_rel & 
+                 loci_set == "autosomal_29"]
+  
+  if (nrow(subset) < 2) return(NULL)
+  
+  n_exceed <- round(subset[[threshold_col]] * subset$n)
+  n_not_exceed <- subset$n - n_exceed
+  
+  if (any(n_exceed < 0) || any(n_not_exceed < 0)) return(NULL)
+  if (sum(n_exceed) == 0 || sum(n_not_exceed) == 0) return(NULL)
+  
+  contingency <- matrix(c(n_exceed, n_not_exceed), nrow = 2, byrow = TRUE,
+                       dimnames = list(c("Exceed", "Not_Exceed"), as.character(subset$population)))
+  
+  test_result <- tryCatch(
+    chisq.test(contingency, simulate.p.value = TRUE, B = 2000),
+    error = function(e) NULL
+  )
+  
+  if (is.null(test_result)) return(NULL)
+  
+  data.frame(
+    known_relationship = known_rel,
+    tested_relationship = tested_rel,
+    statistic = test_result$statistic,
+    p_value = test_result$p.value,
+    significant = test_result$p.value < 0.05
+  )
+}
+
+pop_tests <- rbindlist(lapply(relationship_order, function(known_rel) {
+  rbindlist(lapply(tested_hypotheses, function(tested_rel) {
+    test_pop_effect(proportions_all, known_rel, tested_rel)
+  }))
+}))
+
+kable(pop_tests,
+      caption = "Chi-square: Population effect on LR > 1 (29 Loci)",
+      digits = c(0, 0, 2, 4, 0)) %>%
+  kable_styling(bootstrap_options = c("striped", "hover"))
+
+fwrite(pop_tests, file.path(params$output_dir, "stat_test_population_effect.csv"))
+```
+
+## Test 3: Linear Trend Analysis - By Population
+
+**What this tests:** Is there a significant linear trend in proportion as loci increase?
+
+**Interpretation:**
+
+| Metric | Meaning |
+|--------|---------|
+| **slope > 0** | Proportion INCREASES with more loci |
+| **slope < 0** | Proportion DECREASES with more loci |
+| **p < 0.05** | Trend is statistically significant |
+| **R² > 0.8** | Very consistent linear relationship |
+
+```{r trend-test}
+trend_tests <- proportions_all[, {
+  if (.N < 3) return(NULL)
+  
+  model <- tryCatch(lm(prop_LR_gt_1 ~ n_loci), error = function(e) NULL)
+  if (is.null(model)) return(NULL)
+  
+  summary_model <- summary(model)
+  coef_table <- coef(summary_model)
+  
+  if (nrow(coef_table) < 2) return(NULL)
+  
+  list(
+    slope = coef_table[2, 1],
+    slope_se = coef_table[2, 2],
+    p_value = coef_table[2, 4],
+    r_squared = summary_model$r.squared,
+    trend = ifelse(coef_table[2, 1] > 0, "INCREASING", "DECREASING"),
+    significant = coef_table[2, 4] < 0.05
+  )
+}, by = .(population, known_relationship, tested_relationship)]
+
+# Display for full_siblings hypothesis
+kable(trend_tests[tested_relationship == "full_siblings", 
+                  .(population, known_relationship, slope, p_value, r_squared, trend, significant)],
+      caption = "Linear trend: Proportion vs N loci (Full-Siblings Hypothesis)",
+      digits = c(0, 0, 5, 4, 3, 0, 0)) %>%
+  kable_styling(bootstrap_options = c("striped", "hover"))
+
+# Display for parent_child hypothesis
+kable(trend_tests[tested_relationship == "parent_child", 
+                  .(population, known_relationship, slope, p_value, r_squared, trend, significant)],
+      caption = "Linear trend: Proportion vs N loci (Parent-Child Hypothesis)",
+      digits = c(0, 0, 5, 4, 3, 0, 0)) %>%
+  kable_styling(bootstrap_options = c("striped", "hover"))
+
+fwrite(trend_tests, file.path(params$output_dir, "stat_test_trend.csv"))
+```
+
+**Critical finding:** If half_siblings under Full-Siblings hypothesis shows:
+- trend = "INCREASING"
+- significant = TRUE
+
+This confirms that **more loci increases the rate at which half-siblings are falsely identified as full siblings**.
+
+# Classification Performance
+
+## Summary at 29 Loci
+
+```{r classification-summary, fig.height=6, fig.width=14}
+summary_29 <- proportions_all[loci_set == "autosomal_29"]
+
+ggplot(summary_29, aes(x = known_relationship, y = prop_LR_gt_1, fill = classification)) +
+  geom_col(position = "dodge") +
+  facet_grid(tested_relationship ~ population,
+             labeller = labeller(population = population_labels,
+                                 tested_relationship = relationship_labels)) +
+  scale_fill_manual(values = c("True Positive" = "#2ca02c", 
+                               "Related FP" = "#ff7f0e", 
+                               "Unrelated FP" = "#d62728")) +
+  scale_x_discrete(labels = function(x) str_wrap(relationship_labels[x], width = 8)) +
+  scale_y_continuous(labels = percent_format()) +
+  labs(
+    title = "Classification Performance at 29 Autosomal Loci",
+    subtitle = "Rows = Tested Hypothesis, Columns = Population",
+    x = "True Relationship",
+    y = "Proportion with LR > 1",
+    fill = "Classification"
+  ) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 8),
+        legend.position = "bottom")
+
+ggsave(file.path(params$output_dir, "classification_summary.png"), width = 14, height = 6, dpi = 300)
+```
+
+## Detailed Rates Table
+
+```{r rates-table}
+rates_table <- proportions_all[
+  loci_set == "autosomal_29",
+  .(population, known_relationship, tested_relationship, classification, 
+    prop_LR_gt_1, prop_LR_gt_10, prop_LR_gt_100, prop_LR_gt_1000)
+]
+
+setorder(rates_table, tested_relationship, population, classification, known_relationship)
+
+kable(rates_table,
+      caption = "Detailed rates at 29 Autosomal Loci",
+      digits = 4) %>%
+  kable_styling(bootstrap_options = c("striped", "hover"), font_size = 10) %>%
+  scroll_box(height = "500px")
+
+fwrite(rates_table, file.path(params$output_dir, "detailed_rates_29loci.csv"))
+```
+
+# Key Findings
+
+```{r key-findings}
+cat("=== KEY FINDINGS ===\n\n")
+
+cat("1. TRUE POSITIVE RATES (at 29 loci, LR > 1):\n")
+tp_rates <- proportions_all[loci_set == "autosomal_29" & 
+                            as.character(known_relationship) == as.character(tested_relationship),
+                            .(population, tested_relationship, prop_LR_gt_1)]
+print(dcast(tp_rates, tested_relationship ~ population, value.var = "prop_LR_gt_1"))
+
+cat("\n2. UNRELATED FALSE POSITIVE RATES (at 29 loci, LR > 1):\n")
+unrel_fp <- proportions_all[loci_set == "autosomal_29" & 
+                            known_relationship == "unrelated",
+                            .(population, tested_relationship, prop_LR_gt_1)]
+print(dcast(unrel_fp, tested_relationship ~ population, value.var = "prop_LR_gt_1"))
+
+cat("\n3. HALF-SIBLING AS FULL-SIBLING FALSE ID (at 29 loci):\n")
+hs_fp <- proportions_all[loci_set == "autosomal_29" & 
+                         known_relationship == "half_siblings" &
+                         tested_relationship == "full_siblings",
+                         .(population, prop_LR_gt_1, prop_LR_gt_10, prop_LR_gt_100)]
+print(hs_fp)
+
+cat("\n4. TREND DIRECTIONS (Full-Siblings hypothesis, half-siblings):\n")
+hs_trend <- trend_tests[tested_relationship == "full_siblings" & known_relationship == "half_siblings"]
+print(hs_trend[, .(population, trend, slope, p_value, significant)])
+```
+
+# Interpretation Summary
+
+## Quick Reference
+
+| What to Check | Good Sign | Concerning Sign |
+|---------------|-----------|-----------------|
+| True Positive Rate | High (>90%) and increasing with loci | Low or decreasing |
+| Unrelated FP Rate | Low (<5%) and decreasing with loci | High or increasing |
+| Related FP Rate (e.g., half-sibs) | Low and decreasing with loci | High and INCREASING |
+| Population effect | Not significant | Highly significant |
+
+## Key Questions Answered
+
+1. **Does adding more loci help?**
+   - For true positives: YES (should increase)
+   - For unrelated FP: YES (should decrease)
+   - For related FP like half-siblings: DEPENDS on the relationship
+
+2. **Are results consistent across populations?**
+   - Check the population effect chi-square tests
+   - Significant = ancestry matters for this relationship
+
+3. **Which hypothesis is better for discrimination?**
+   - Compare the classification summary plot
+
+# Session Info
+
+```{r session-info}
+cat("Analysis completed:", format(Sys.time(), "%Y-%m-%d %H:%M:%S"), "\n")
+cat("Output directory:", params$output_dir, "\n\n")
+
+output_files <- list.files(params$output_dir, full.names = FALSE)
+cat("Generated files:\n")
+cat(paste(" -", output_files), sep = "\n")
+
+sessionInfo()
+```
