@@ -7,7 +7,8 @@ echo "Started at: $(date)"
 
 # Step 1: Generate file list of all pairs CSV files
 echo "Generating file list..."
-ls output/pairs_*_chunk*.csv > output/lr_file_list.txt 2>/dev/null
+#ls output/pairs_*_chunk*.csv > output/lr_file_list.txt 2>/dev/null # for first 10k sim pairs, and default
+ls output/pairs_*_chunk{11..20}_*.csv > output/lr_file_list.txt # for second 10k sim pairs
 
 # Check if any files were found
 if [ ! -s output/lr_file_list.txt ]; then
