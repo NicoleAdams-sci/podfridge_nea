@@ -1,0 +1,9 @@
+# Mac-specific file
+.DS_Store
+**/.DS_Store
+
+# Ignore old/deprecated code
+**/code_graveyard/
+
+# Ignore R
+.Rhistory
