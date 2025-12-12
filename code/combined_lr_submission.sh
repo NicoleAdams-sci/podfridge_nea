@@ -7,7 +7,8 @@ FILE_LIST=${1:-output/combined_lr_file_list.txt}
 
 # If using default, generate it from LR files
 if [ "$FILE_LIST" = "output/combined_lr_file_list.txt" ]; then
-    ls output/LR/LR_*.csv > "$FILE_LIST"
+    #ls output/LR/LR_*.csv > "$FILE_LIST"
+    ls output/LR/LR_*_chunk{11..20}.csv > "$FILE_LIST"
 fi
 
 # Count files and update SLURM script with file count AND file list path
