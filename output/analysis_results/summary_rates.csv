@@ -1,0 +1,7 @@
+known_relationship,n,prop_LR_gt_1,prop_LR_gt_10,prop_LR_gt_100,prop_LR_gt_1000,rate_type
+parent_child,500,1,1,1,1,False Identification
+half_siblings,500,0.914,0.722,0.434,0.182,False Identification
+cousins,500,0,0,0,0,False Identification
+second_cousins,500,0,0,0,0,False Identification
+unrelated,500,0,0,0,0,False Positive
+full_siblings,500,1,1,1,1,True Positive
