@@ -1,0 +1,4 @@
+known_relationship,tested_relationship,statistic,p_value,significant
+full_siblings,parent_child,4.906552477809,0.347826086956522,FALSE
+half_siblings,parent_child,39.3333333333333,0.000499750124937531,TRUE
+half_siblings,full_siblings,29.2850712489823,0.000499750124937531,TRUE

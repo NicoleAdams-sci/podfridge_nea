@@ -1,0 +1,16 @@
+population,known_relationship,tested_relationship,statistic,p_value,significant
+all,full_siblings,parent_child,33.8229897142404,0.000499750124937531,TRUE
+all,half_siblings,parent_child,24.7211938620074,0.000499750124937531,TRUE
+all,half_siblings,full_siblings,32.4822945683488,0.000499750124937531,TRUE
+AfAm,full_siblings,parent_child,42.4645975493433,0.000499750124937531,TRUE
+AfAm,half_siblings,parent_child,31.2121212121212,0.000499750124937531,TRUE
+AfAm,half_siblings,full_siblings,31.5395124450327,0.000499750124937531,TRUE
+Asian,full_siblings,parent_child,12.8233858718657,0.0114942528735632,TRUE
+Asian,half_siblings,parent_child,24.3652704829443,0.000499750124937531,TRUE
+Asian,half_siblings,full_siblings,39.7555195666694,0.000499750124937531,TRUE
+Cauc,full_siblings,parent_child,26.3584752635848,0.000999500249875062,TRUE
+Cauc,half_siblings,parent_child,20.7159573545982,0.000999500249875062,TRUE
+Cauc,half_siblings,full_siblings,25.7543895936753,0.000999500249875062,TRUE
+Hispanic,full_siblings,parent_child,38.7636612021858,0.000499750124937531,TRUE
+Hispanic,half_siblings,parent_child,31.5423901940756,0.000499750124937531,TRUE
+Hispanic,half_siblings,full_siblings,24.6252224251501,0.000499750124937531,TRUE
