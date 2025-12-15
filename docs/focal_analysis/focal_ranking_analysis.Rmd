@@ -1,0 +1,570 @@
+---
+title: "Focal Individual Ranking Analysis"
+author: "Kinship LR Simulation Project"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    toc_depth: 3
+    code_folding: show
+    theme: flatly
+    highlight: tango
+params:
+  n_focal: 10
+  n_unrelated: 100
+  population: "Cauc"
+  use_toy_data: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE,
+  message = FALSE,
+  warning = FALSE,
+  fig.width = 10,
+  fig.height = 6
+)
+```
+
+# Introduction
+
+This analysis demonstrates how a **focal individual's true relative** ranks compared to a database of **unrelated individuals** when computing kinship likelihood ratios (LRs).
+
+**Key question**: If we have a focal person and their true parent/sibling, and we compare them against a database of unrelated people, where does the true relative rank?
+
+## Parameters
+
+- **Focal individuals**: `r params$n_focal`
+- **Unrelated database size**: `r params$n_unrelated`
+- **Population**: `r params$population`
+- **Using toy data**: `r params$use_toy_data`
+
+# Setup
+
+```{r load-packages}
+library(data.table)
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(knitr)
+library(kableExtra)
+
+# Set seed for reproducibility
+set.seed(42)
+```
+
+```{r source-modules, eval=params$use_toy_data}
+# Source all required modules
+source("../../code/LR_kinship_utility_functions.R")
+source("../../code/module1_allele_simulator.R")
+source("../../code/module2_STR_profile_simulator.R")
+source("../../code/module3_related_individual_simulator.R")
+source("../../code/module4_single_locus_LR.R")
+source("../../code/module5_combined_LR.R")
+```
+
+# Data Generation
+
+```{r load-reference-data}
+# Load allele frequencies and kinship coefficients
+allele_freq <- fread("../../data/df_allelefreq_combined.csv")
+kinship_coeffs <- fread("../../data/kinship_coefficients.csv")
+
+# Apply minimum frequency for rare alleles
+FALLBACK_FREQ <- 5 / (2 * 1036)
+allele_freq[frequency == 0, frequency := FALLBACK_FREQ]
+allele_freq[, allele := as.character(allele)]
+
+# Get loci from core CODIS file
+core_loci <- fread("../../data/core_CODIS_loci.csv")
+
+# Define loci sets
+loci_sets <- list(
+  core_13 = core_loci[core_13 == 1, locus],
+  identifiler_15 = core_loci[identifiler_15 == 1, locus],
+  expanded_20 = core_loci[expanded_20 == 1, locus],
+  autosomal_29 = unique(allele_freq$marker)
+)
+
+cat("Available populations:", paste(unique(allele_freq$population), collapse = ", "), "\n")
+cat("Number of loci:", length(loci_sets$autosomal_29), "\n")
+```
+
+## Generate Focal Families
+
+We create focal individuals, each with:
+- 1 parent-child relative
+- 1 full sibling
+
+```{r generate-focal-families, eval=params$use_toy_data}
+# Use the full loci set for simulation
+sim_loci <- loci_sets$autosomal_29
+pop <- params$population
+
+# Store focal families
+focal_families <- list()
+
+for (i in 1:params$n_focal) {
+  # Generate focal individual's profile
+  focal_profile <- simulate_str_profile(
+    loci_list = sim_loci,
+    population = pop,
+    allele_frequency_data = allele_freq
+  )
+  focal_profile$focal_id <- paste0("focal_", i)
+  focal_profile$individual_id <- paste0("focal_", i)
+  
+  # Generate parent-child relative
+  pc_relative <- simulate_related_individual(
+    focal_profile = focal_profile,
+    known_relationship = "parent_child",
+    allele_frequency_data = allele_freq,
+    individual_id = paste0("pc_", i)
+  )
+  
+  # Generate full sibling
+  fs_relative <- simulate_related_individual(
+    focal_profile = focal_profile,
+    known_relationship = "full_siblings",
+    allele_frequency_data = allele_freq,
+    individual_id = paste0("fs_", i)
+  )
+  
+  focal_families[[i]] <- list(
+    focal = focal_profile,
+    parent_child = pc_relative,
+    full_sibling = fs_relative
+  )
+}
+
+cat("Generated", params$n_focal, "focal families\n")
+```
+
+## Generate Unrelated Database
+
+```{r generate-unrelated, eval=params$use_toy_data}
+# Generate unrelated individuals
+unrelated_profiles <- list()
+
+for (i in 1:params$n_unrelated) {
+  profile <- simulate_str_profile(
+    loci_list = sim_loci,
+    population = pop,
+    allele_frequency_data = allele_freq
+  )
+  profile$individual_id <- paste0("unrelated_", i)
+  unrelated_profiles[[i]] <- profile
+}
+
+cat("Generated", params$n_unrelated, "unrelated individuals\n")
+```
+
+# Likelihood Ratio Calculations
+
+## Create Pair Data
+
+```{r create-pair-data, eval=params$use_toy_data}
+# Function to create pair data for LR calculation
+create_pair_data <- function(focal_profile, relative_profile, pair_id, known_relationship) {
+  data.frame(
+    batch_id = "focal_analysis",
+    pair_id = pair_id,
+    population = pop,
+    locus = focal_profile$locus,
+    focal_A1 = focal_profile$A1,
+    focal_A2 = focal_profile$A2,
+    ind2_A1 = relative_profile$A1,
+    ind2_A2 = relative_profile$A2,
+    known_relationship = known_relationship,
+    stringsAsFactors = FALSE
+  )
+}
+
+# Create pairs for true relatives
+true_relative_pairs <- list()
+
+for (i in 1:params$n_focal) {
+  # Parent-child pair
+  pc_pair <- create_pair_data(
+    focal_families[[i]]$focal,
+    focal_families[[i]]$parent_child,
+    pair_id = paste0("focal", i, "_vs_pc", i),
+    known_relationship = "parent_child"
+  )
+  
+  # Full sibling pair
+  fs_pair <- create_pair_data(
+    focal_families[[i]]$focal,
+    focal_families[[i]]$full_sibling,
+    pair_id = paste0("focal", i, "_vs_fs", i),
+    known_relationship = "full_siblings"
+  )
+  
+  true_relative_pairs[[length(true_relative_pairs) + 1]] <- pc_pair
+  true_relative_pairs[[length(true_relative_pairs) + 1]] <- fs_pair
+}
+
+true_pairs_df <- bind_rows(true_relative_pairs)
+cat("Created", length(unique(true_pairs_df$pair_id)), "true relative pairs\n")
+```
+
+```{r create-unrelated-pairs, eval=params$use_toy_data}
+# Create pairs for focal vs unrelated
+unrelated_pairs <- list()
+
+for (i in 1:params$n_focal) {
+  for (j in 1:params$n_unrelated) {
+    unr_pair <- create_pair_data(
+      focal_families[[i]]$focal,
+      unrelated_profiles[[j]],
+      pair_id = paste0("focal", i, "_vs_unrelated", j),
+      known_relationship = "unrelated"
+    )
+    unr_pair$focal_id <- i
+    unrelated_pairs[[length(unrelated_pairs) + 1]] <- unr_pair
+  }
+}
+
+unrelated_pairs_df <- bind_rows(unrelated_pairs)
+cat("Created", length(unique(unrelated_pairs_df$pair_id)), "focal-vs-unrelated pairs\n")
+```
+
+## Calculate Single-Locus LRs
+
+```{r calc-single-locus-lr, eval=params$use_toy_data}
+# Test both parent_child and full_siblings hypotheses
+tested_relationships <- c("parent_child", "full_siblings")
+tested_pops <- pop  # Use same population for frequency lookup
+
+# Calculate LRs for true relatives
+true_lr_results <- list()
+for (rel in tested_relationships) {
+  lr_result <- calculate_single_locus_lr(
+    pair_data = true_pairs_df,
+    tested_relationship = rel,
+    tested_populations = tested_pops,
+    allele_frequency_data = allele_freq,
+    kinship_coefficients = kinship_coeffs
+  )
+  true_lr_results[[rel]] <- lr_result
+}
+true_single_lr <- bind_rows(true_lr_results)
+
+# Calculate LRs for unrelated pairs (this may take a moment)
+cat("Calculating LRs for unrelated pairs (this may take a moment)...\n")
+
+unrelated_lr_results <- list()
+for (rel in tested_relationships) {
+  lr_result <- calculate_single_locus_lr(
+    pair_data = unrelated_pairs_df,
+    tested_relationship = rel,
+    tested_populations = tested_pops,
+    allele_frequency_data = allele_freq,
+    kinship_coefficients = kinship_coeffs
+  )
+  unrelated_lr_results[[rel]] <- lr_result
+}
+unrelated_single_lr <- bind_rows(unrelated_lr_results)
+
+cat("Completed single-locus LR calculations\n")
+```
+
+## Calculate Combined LRs
+
+```{r calc-combined-lr, eval=params$use_toy_data}
+# Calculate combined LRs across loci sets
+true_combined_lr <- calculate_combined_lr(true_single_lr, loci_sets)
+unrelated_combined_lr <- calculate_combined_lr(unrelated_single_lr, loci_sets)
+
+# Add log10 LR for easier interpretation
+true_combined_lr$log10_LR <- log10(true_combined_lr$combined_LR)
+unrelated_combined_lr$log10_LR <- log10(unrelated_combined_lr$combined_LR)
+
+cat("Combined LR ranges:\n")
+cat("  True relatives: ", round(min(true_combined_lr$log10_LR, na.rm = TRUE), 2), 
+    "to", round(max(true_combined_lr$log10_LR, na.rm = TRUE), 2), "(log10)\n")
+cat("  Unrelated:      ", round(min(unrelated_combined_lr$log10_LR, na.rm = TRUE), 2), 
+    "to", round(max(unrelated_combined_lr$log10_LR, na.rm = TRUE), 2), "(log10)\n")
+```
+
+# Ranking Analysis
+
+## Compute Rankings
+
+For each focal individual, we rank their true relative against all unrelated individuals in the database.
+
+```{r compute-rankings, eval=params$use_toy_data}
+# Function to compute rank of true relative vs unrelated database
+compute_ranking <- function(true_lr_df, unrelated_lr_df, focal_idx, tested_rel, loci_set_name) {
+  
+  # Get true relative's LR (matching the tested hypothesis)
+  true_lr_row <- true_lr_df %>%
+    filter(
+      grepl(paste0("focal", focal_idx, "_vs_"), pair_id),
+      tested_relationship == tested_rel,
+      loci_set == loci_set_name
+    )
+  
+  # Filter to get the pair where known relationship matches tested relationship
+  if (tested_rel == "parent_child") {
+    true_lr_row <- true_lr_row %>% filter(known_relationship == "parent_child")
+  } else if (tested_rel == "full_siblings") {
+    true_lr_row <- true_lr_row %>% filter(known_relationship == "full_siblings")
+  }
+  
+  if (nrow(true_lr_row) == 0) return(NULL)
+  
+  true_lr_value <- true_lr_row$combined_LR[1]
+  
+  # Get all unrelated LRs for this focal individual
+  unrelated_lrs <- unrelated_lr_df %>%
+    filter(
+      grepl(paste0("focal", focal_idx, "_vs_unrelated"), pair_id),
+      tested_relationship == tested_rel,
+      loci_set == loci_set_name
+    ) %>%
+    pull(combined_LR)
+  
+  if (length(unrelated_lrs) == 0) return(NULL)
+  
+  # Combine and rank (higher LR = better rank)
+  all_lrs <- c(true_lr_value, unrelated_lrs)
+  ranks <- rank(-all_lrs, ties.method = "min")
+  true_relative_rank <- ranks[1]
+  
+  # Count how many unrelated have higher LR
+  n_unrelated_better <- sum(unrelated_lrs > true_lr_value)
+  
+  data.frame(
+    focal_id = focal_idx,
+    tested_relationship = tested_rel,
+    known_relationship = true_lr_row$known_relationship[1],
+    loci_set = loci_set_name,
+    true_relative_lr = true_lr_value,
+    true_relative_log10_lr = log10(true_lr_value),
+    rank = true_relative_rank,
+    database_size = length(all_lrs),
+    n_unrelated_better = n_unrelated_better,
+    percentile = (1 - (true_relative_rank - 1) / length(all_lrs)) * 100
+  )
+}
+
+# Compute rankings for all combinations
+ranking_results <- list()
+
+for (focal_idx in 1:params$n_focal) {
+  for (tested_rel in tested_relationships) {
+    for (loci_set_name in names(loci_sets)) {
+      result <- compute_ranking(
+        true_combined_lr, unrelated_combined_lr,
+        focal_idx, tested_rel, loci_set_name
+      )
+      if (!is.null(result)) {
+        ranking_results[[length(ranking_results) + 1]] <- result
+      }
+    }
+  }
+}
+
+ranking_df <- bind_rows(ranking_results)
+```
+
+## Summary Statistics {.tabset}
+
+### By Relationship Type
+
+```{r ranking-summary-relationship, eval=params$use_toy_data}
+ranking_summary_rel <- ranking_df %>%
+  filter(known_relationship == tested_relationship) %>%  # True positive scenario
+  group_by(tested_relationship, loci_set) %>%
+  summarize(
+    n_focal = n(),
+    mean_rank = round(mean(rank), 2),
+    median_rank = median(rank),
+    prop_rank_1 = round(mean(rank == 1) * 100, 1),
+    mean_percentile = round(mean(percentile), 1),
+    mean_log10_LR = round(mean(true_relative_log10_lr), 2),
+    .groups = "drop"
+  ) %>%
+  arrange(tested_relationship, loci_set)
+
+ranking_summary_rel %>%
+  kable(
+    caption = "True Relative Ranking Summary (True Positive: Known = Tested)",
+    col.names = c("Tested Relationship", "Loci Set", "N Focal", "Mean Rank", 
+                  "Median Rank", "% Rank 1", "Mean Percentile", "Mean log₁₀(LR)")
+  ) %>%
+  kable_styling(bootstrap_options = c("striped", "hover"), full_width = FALSE)
+```
+
+### By Loci Set
+
+```{r ranking-summary-loci, eval=params$use_toy_data}
+ranking_summary_loci <- ranking_df %>%
+  filter(known_relationship == tested_relationship) %>%
+  group_by(loci_set) %>%
+  summarize(
+    n_pairs = n(),
+    mean_rank = round(mean(rank), 2),
+    prop_rank_1 = round(mean(rank == 1) * 100, 1),
+    mean_log10_LR = round(mean(true_relative_log10_lr), 2),
+    .groups = "drop"
+  ) %>%
+  mutate(
+    n_loci = sapply(loci_set, function(x) length(loci_sets[[x]]))
+  ) %>%
+  arrange(n_loci)
+
+ranking_summary_loci %>%
+  kable(
+    caption = "Ranking Performance by Number of Loci",
+    col.names = c("Loci Set", "N Pairs", "Mean Rank", "% Rank 1", "Mean log₁₀(LR)", "N Loci")
+  ) %>%
+  kable_styling(bootstrap_options = c("striped", "hover"), full_width = FALSE)
+```
+
+### Individual Results
+
+```{r individual-rankings, eval=params$use_toy_data}
+# Show individual rankings for autosomal_29 (most loci)
+individual_results <- ranking_df %>%
+  filter(
+    loci_set == "autosomal_29",
+    known_relationship == tested_relationship
+  ) %>%
+  select(focal_id, tested_relationship, rank, percentile, true_relative_log10_lr) %>%
+  arrange(tested_relationship, focal_id)
+
+individual_results %>%
+  head(20) %>%
+  kable(
+    caption = "Individual Focal Rankings (29 Loci, True Positive Scenario)",
+    col.names = c("Focal ID", "Relationship", "Rank", "Percentile", "log₁₀(LR)"),
+    digits = 2
+  ) %>%
+  kable_styling(bootstrap_options = c("striped", "hover"), full_width = FALSE)
+```
+
+## Visualizations {.tabset}
+
+### Rank Distribution
+
+```{r plot-rank-distribution, eval=params$use_toy_data, fig.height=8}
+ranking_df %>%
+  filter(known_relationship == tested_relationship) %>%
+  mutate(loci_set = factor(loci_set, levels = c("core_13", "identifiler_15", 
+                                                  "expanded_20", "autosomal_29"))) %>%
+  ggplot(aes(x = loci_set, y = rank, fill = tested_relationship)) +
+  geom_boxplot(alpha = 0.7) +
+  geom_hline(yintercept = 1, linetype = "dashed", color = "red", linewidth = 1) +
+  scale_fill_brewer(palette = "Set2") +
+  labs(
+    title = "True Relative Rank vs Unrelated Database",
+    subtitle = paste0("Database size: ", params$n_unrelated, " unrelated individuals"),
+    x = "Loci Set",
+    y = "Rank (1 = highest LR)",
+    fill = "Relationship"
+  ) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+### LR Distributions
+
+```{r plot-lr-distributions, eval=params$use_toy_data, fig.height=10}
+# Combine true and unrelated LRs for comparison
+true_for_plot <- true_combined_lr %>%
+  filter(known_relationship == tested_relationship) %>%
+  mutate(pair_type = "True Relative")
+
+unrelated_for_plot <- unrelated_combined_lr %>%
+  mutate(pair_type = "Unrelated")
+
+combined_for_plot <- bind_rows(true_for_plot, unrelated_for_plot) %>%
+  filter(is.finite(log10_LR)) %>%
+  mutate(loci_set = factor(loci_set, levels = c("core_13", "identifiler_15", 
+                                                  "expanded_20", "autosomal_29")))
+
+ggplot(combined_for_plot, aes(x = log10_LR, fill = pair_type)) +
+  geom_density(alpha = 0.5) +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "gray40") +
+  facet_grid(tested_relationship ~ loci_set, scales = "free_y") +
+  scale_fill_manual(values = c("True Relative" = "forestgreen", "Unrelated" = "firebrick")) +
+  labs(
+    title = "log₁₀(LR) Distribution: True Relatives vs Unrelated",
+    subtitle = "Dashed line at LR = 1 (log₁₀ = 0)",
+    x = "log₁₀(Combined LR)",
+    y = "Density",
+    fill = "Pair Type"
+  ) +
+  theme_minimal()
+```
+
+### Percentile by Loci Count
+
+```{r plot-percentile-trend, eval=params$use_toy_data}
+ranking_df %>%
+  filter(known_relationship == tested_relationship) %>%
+  mutate(
+    n_loci = sapply(loci_set, function(x) length(loci_sets[[x]]))
+  ) %>%
+  group_by(tested_relationship, n_loci) %>%
+  summarize(
+    mean_percentile = mean(percentile),
+    se_percentile = sd(percentile) / sqrt(n()),
+    .groups = "drop"
+  ) %>%
+  ggplot(aes(x = n_loci, y = mean_percentile, color = tested_relationship)) +
+  geom_line(linewidth = 1) +
+  geom_point(size = 3) +
+  geom_errorbar(aes(ymin = mean_percentile - se_percentile, 
+                    ymax = mean_percentile + se_percentile), width = 0.5) +
+  scale_color_brewer(palette = "Set2") +
+  scale_y_continuous(limits = c(0, 100)) +
+  labs(
+    title = "True Relative Percentile Ranking vs Number of Loci",
+    subtitle = "Higher percentile = true relative ranks better than more unrelated individuals",
+    x = "Number of Loci",
+    y = "Mean Percentile (%)",
+    color = "Relationship"
+  ) +
+  theme_minimal()
+```
+
+# Interpretation Guide
+
+## What Does Rank Mean?
+
+- **Rank 1**: The true relative has the highest LR among all individuals in the database
+- **Rank 2**: One unrelated individual has a higher LR than the true relative
+- **Lower rank**: More unrelated individuals appear more "related" than the true relative
+
+## Key Metrics
+
+| Metric | Interpretation |
+|--------|----------------|
+| **Rank** | Position of true relative when all candidates are sorted by LR (1 = best) |
+| **Percentile** | % of database that the true relative outperforms (100% = best) |
+| **% Rank 1** | Proportion of focal individuals where the true relative ranked #1 |
+| **log₁₀(LR)** | Combined likelihood ratio on log scale (>0 favors relatedness) |
+
+## Expected Results
+
+For **true relatives** tested under the **correct hypothesis**:
+- Rank should typically be **1** (true relative has highest LR)
+- Percentile should be **near 100%**
+- More loci generally → **better discrimination** (higher percentiles)
+
+## When Rankings Are Not #1
+
+A true relative may not rank #1 when:
+1. **Random chance**: Some unrelated pairs may share many alleles by coincidence
+2. **Few loci**: Less discriminating power
+3. **Population structure**: Allele frequencies don't perfectly match the individuals
+
+# Session Info
+
+```{r session-info}
+sessionInfo()
+```
