@@ -69,15 +69,26 @@ all_combined_mismatch <- all_combined %>% filter(is_correct_pop == FALSE)
 all_combined_match_file <- file.path(output_dir, "combined_LR_match.csv")
 fwrite(all_combined_strict_match, all_combined_match_file) # <-- Use the STRICT match data here
 
+# Clean up memory
+rm(all_combined_strict_match)
+gc()
+
 all_combined_mismatch_file <- file.path(output_dir, "combined_LR_mismatch.csv")
 fwrite(all_combined_mismatch, all_combined_mismatch_file)
 
+# Clean up memory
+rm(all_combined_mismatch)
+gc()
 
 # apply functions from module 9 - analyses on combined_LR data
 # Use the POPULATION-MATCH ONLY data for summary stats
 summary_stats <- calculate_summary_stats(all_combined_pop_match)
 summary_stats_file <- file.path(output_dir, "combined_LR_summary_stats.csv")
 fwrite(summary_stats, summary_stats_file)
+
+# Clean up memory
+rm(summary_stats)
+gc()
 
 # Uses FULL combined data
 ratios <- calculate_ratio_stats(all_combined)
@@ -86,3 +97,7 @@ fwrite(ratios$ratio_summary, ratio_summary_file)
 
 ratios_raw_file <- file.path(output_dir, "combined_LR_ratios_raw.csv")
 fwrite(ratios$combined_lrs_ratio, ratios_raw_file)
+
+# Clean up memory
+rm(ratios)
+gc()
