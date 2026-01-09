@@ -203,6 +203,9 @@ population_labels <- c(
   "Hispanic" = "Hispanic"
 )
 
+# Filter dataframe to only the two tested hypotheses - necessary for big sim dataset
+all_combined <- all_combined[tested_relationship %in% tested_hypotheses]
+
 all_combined[, `:=`(
   population = factor(population, levels = population_order),
   tested_population = factor(tested_population, levels = population_order),
