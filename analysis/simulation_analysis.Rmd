@@ -577,7 +577,7 @@ test_pop_effect <- function(data, known_rel, tested_rel, threshold_col = "prop_L
                        dimnames = list(c("Exceed", "Not_Exceed"), as.character(subset$population)))
   
   test_result <- tryCatch(
-    chisq.test(contingency, simulate.p.value = TRUE, B = 2000),
+    chisq.test(contingency),
     error = function(e) NULL
   )
   
