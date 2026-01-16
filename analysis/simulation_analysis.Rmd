@@ -177,6 +177,15 @@ if (params$use_toy_data) {
 #cat("Unique pairs per group:", params$n_pairs_per_group, "\n")
 ```
 
+```{r filter data}
+# Filter dataframe to only the two tested hypotheses - necessary for big sim dataset
+all_combined <- all_combined[tested_relationship %in% tested_hypotheses]
+
+# Filter dataframe to only correct population - used the correct population allele freq
+all_combined <- all_combined[is_correct_pop == TRUE]
+
+```
+
 ```{r define-factors}
 relationship_labels <- c(
   "parent_child" = "Parent-Child",
@@ -203,8 +212,6 @@ population_labels <- c(
   "Hispanic" = "Hispanic"
 )
 
-# Filter dataframe to only the two tested hypotheses - necessary for big sim dataset
-all_combined <- all_combined[tested_relationship %in% tested_hypotheses]
 
 all_combined[, `:=`(
   population = factor(population, levels = population_order),
@@ -727,6 +734,24 @@ unrel_fp <- proportions_all[loci_set == "autosomal_29" &
                             known_relationship == "unrelated",
                             .(population, tested_relationship, prop_LR_gt_1)]
 print(dcast(unrel_fp, tested_relationship ~ population, value.var = "prop_LR_gt_1"))
+
+# More detailed unrelated FP breakdown
+cat("\n2b. DETAILED UNRELATED FALSE POSITIVE BREAKDOWN:\n")
+unrel_detailed <- proportions_all[loci_set == "autosomal_29" & 
+                                  known_relationship == "unrelated",
+                                  .(population, tested_relationship, 
+                                    n, 
+                                    fp_count = round(prop_LR_gt_1 * n),
+                                    fp_rate_pct = prop_LR_gt_1 * 100)]
+print(unrel_detailed)
+
+cat("\nOverall FP summary:\n")
+overall_summary <- unrel_detailed[, .(
+  total_tests = sum(n),
+  total_fps = sum(fp_count),
+  overall_fp_pct = sum(fp_count) / sum(n) * 100
+), by = tested_relationship]
+print(overall_summary)
 
 cat("\n3. HALF-SIBLING AS FULL-SIBLING FALSE ID (at 29 loci):\n")
 hs_fp <- proportions_all[loci_set == "autosomal_29" & 
