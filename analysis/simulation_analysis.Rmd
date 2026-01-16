@@ -172,9 +172,9 @@ if (params$use_toy_data) {
   setDT(all_combined)
 }
 
-cat("Total rows:", nrow(all_combined), "\n")
-cat("Unique pairs per group:", params$n_pairs_per_group, "\n")
-cat("Tested hypotheses:", paste(tested_hypotheses, collapse = ", "), "\n")
+# data summary for toy data
+#cat("Total rows:", nrow(all_combined), "\n")
+#cat("Unique pairs per group:", params$n_pairs_per_group, "\n")
 ```
 
 ```{r define-factors}
@@ -246,16 +246,12 @@ data_summary <- all_combined[, .(
 ), by = .(population, known_relationship)]
 
 data_summary_wide <- dcast(data_summary, known_relationship ~ population, 
-                           value.var = "n_pairs", fill = 0)
+                           value.var = "n_pairs")
 
 kable(data_summary_wide, 
-      caption = "Number of simulated pairs by population and known relationship",
-      format.args = list(big.mark = ",")) %>%
+      caption = "Number of simulated pairs by population and known relationship<br>For each tested hypothesis:Parent-Child, Full-Siblings",
+      format.args = list(big.mark = ",", scientific = FALSE)) %>%
   kable_styling(bootstrap_options = c("striped", "hover", "condensed"))
-
-cat("\nEach cell shows", params$n_pairs_per_group, "pairs tested under", 
-    length(tested_hypotheses), "hypotheses (Parent-Child, Full-Siblings) across", 
-    length(loci_set_order), "loci sets.\n")
 ```
 
 # Combined LR Distributions
