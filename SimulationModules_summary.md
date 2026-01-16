@@ -16,6 +16,9 @@ The PODFRIDGE (POPulation Data For Relationship Inference using DNA Genotype Evi
 ```
 podfridge_simulations/
 ├── code/                    # All R scripts and SLURM job scripts
+├── analysis/                # R Markdown analysis scripts and reports
+│   ├── simulation_analysis.Rmd       # Statistical analysis R Markdown
+│   └── simulation_analysis.html      # Generated HTML report
 ├── data/                    # Reference data files
 │   ├── df_allelefreq_combined.csv    # Allele frequencies for 5 populations
 │   ├── kinship_coefficients.csv      # IBD sharing probabilities (k0, k1, k2)
@@ -28,7 +31,8 @@ podfridge_simulations/
     └── lr_analysis_*/       # Analysis results and plots
         ├── plots_matched/   # Plots for correct population/relationship
         ├── plots_mismatched/# Plots for incorrect assumptions
-        └── plots_exceeding_cutoffs/  # Threshold analysis plots
+        ├── plots_exceeding_cutoffs/  # Threshold analysis plots
+        └── analysis_results/         # R Markdown report outputs
 ```
 
 ## Module Architecture & Dependencies
@@ -140,6 +144,23 @@ Post-Processing:
 10. **plots_mismatched.R**: Visualizes population/relationship mismatch effects
 11. **plots_proportion_exceeding_cutoffs.R**: Threshold analysis plots
 
+#### Statistical Report Generation
+12. **simulation_analysis.Rmd**: R Markdown report for comprehensive statistical analysis
+   - Location: `analysis/simulation_analysis.Rmd`
+   - Dependencies: tidyverse, data.table, scales, knitr, kableExtra
+   - Generates HTML report with interactive analysis
+   - Key features:
+     - Classification performance analysis (true positives, related FP, unrelated FP)
+     - Statistical hypothesis testing (chi-square, linear trends)
+     - Loci set comparison across different marker panels
+     - Population effect analysis
+     - Threshold performance metrics
+
+13. **simulation_analysis.sh**: SLURM submission script for report generation
+   - Location: `code/simulation_analysis.sh`
+   - Called by: `sbatch code/simulation_analysis.sh <input_dir> [output_dir]`
+   - Output: HTML report in `output/<output_dir>/analysis_results/`
+
 ## Workflow
 
 ### Step 1: Simulate Genotype Pairs
@@ -161,7 +182,7 @@ bash code/lr_submission.sh
 - Calculates LR for each of 29 STR loci
 - Output: 240 files in `output/LR/`
 
-### Step 3: Calculate Combined LRs (Optional)
+### Step 3: Calculate Combined LRs
 ```bash
 bash code/combined_lr_submission.sh
 ```
@@ -195,6 +216,19 @@ sbatch code/plots_mismatched.sh output/lr_analysis_YYYYMMDD
 sbatch code/plots_proportion_exceeding_cutoffs.sh output/lr_analysis_YYYYMMDD
 ```
 
+### Step 6: Generate Statistical Report (NEW)
+```bash
+sbatch code/simulation_analysis.sh lr_analysis_YYYYMMDD
+```
+- Generates comprehensive HTML report with:
+  - Data summaries and distribution plots
+  - Statistical hypothesis tests (chi-square, linear trends)
+  - Classification performance analysis
+  - True positive vs false positive comparisons
+  - Population-specific effects
+  - Key findings and interpretation guidance
+- Output: `output/lr_analysis_YYYYMMDD/analysis_results/`
+
 ## Output Files
 
 ### Simulation Output
@@ -215,3 +249,12 @@ sbatch code/plots_proportion_exceeding_cutoffs.sh output/lr_analysis_YYYYMMDD
 - `combined_LR_ratio_summary.csv`: Population mismatch effects
 - `combined_LR_cutoffs.csv`: Decision thresholds
 - `combined_LR_exceeding_cutoffs.csv`: Performance metrics
+
+### Statistical Report Output (NEW)
+Generated in `analysis_results/` subdirectory:
+- `simulation_analysis.html`: Interactive HTML report
+- `classification_summary.png`: Performance visualization
+- `detailed_rates_29loci.csv`: Detailed rate tables
+- `stat_test_loci_effect.csv`: Chi-square tests for loci effects
+- `stat_test_population_effect.csv`: Chi-square tests for population effects
+- `stat_test_trend.csv`: Linear trend analysis results

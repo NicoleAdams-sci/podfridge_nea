@@ -41,8 +41,8 @@ REL_INDEX=$(( COMBO_INDEX % 6 ))
 
 POPULATION=${POPULATIONS[$POP_INDEX]}
 RELATIONSHIP=${RELATIONSHIPS[$REL_INDEX]}
-CHUNK_NUM=$(( CHUNK_INDEX + 1 ))  # Make it 1-based for display
-
+#CHUNK_NUM=$(( CHUNK_INDEX + 1 ))  # Make it 1-based for display - for initial 10k sims pairs
+CHUNK_NUM=$(( CHUNK_INDEX + 11 ))  # Start at chunk 11 for additional 10k sim pairs
 
 echo "Running job ${SLURM_ARRAY_TASK_ID}: Population=${POPULATION}, Relationship=${RELATIONSHIP}, Chunk=${CHUNK_NUM}"
 echo "Started at: $(date)"

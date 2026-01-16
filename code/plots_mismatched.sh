@@ -4,7 +4,7 @@
 #SBATCH --partition=standard
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
-#SBATCH --mem=8G
+#SBATCH --mem=42G
 #SBATCH --time=01:00:00
 #SBATCH --output=logs/plot_mismatch_pop_%j.out
 #SBATCH --error=logs/plot_mismatch_pop_%j.err

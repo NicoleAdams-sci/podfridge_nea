@@ -172,9 +172,18 @@ if (params$use_toy_data) {
   setDT(all_combined)
 }
 
-cat("Total rows:", nrow(all_combined), "\n")
-cat("Unique pairs per group:", params$n_pairs_per_group, "\n")
-cat("Tested hypotheses:", paste(tested_hypotheses, collapse = ", "), "\n")
+# data summary for toy data
+#cat("Total rows:", nrow(all_combined), "\n")
+#cat("Unique pairs per group:", params$n_pairs_per_group, "\n")
+```
+
+```{r filter data}
+# Filter dataframe to only the two tested hypotheses - necessary for big sim dataset
+all_combined <- all_combined[tested_relationship %in% tested_hypotheses]
+
+# Filter dataframe to only correct population - used the correct population allele freq
+all_combined <- all_combined[is_correct_pop == TRUE]
+
 ```
 
 ```{r define-factors}
@@ -202,6 +211,7 @@ population_labels <- c(
   "Cauc" = "Caucasian",
   "Hispanic" = "Hispanic"
 )
+
 
 all_combined[, `:=`(
   population = factor(population, levels = population_order),
@@ -243,16 +253,12 @@ data_summary <- all_combined[, .(
 ), by = .(population, known_relationship)]
 
 data_summary_wide <- dcast(data_summary, known_relationship ~ population, 
-                           value.var = "n_pairs", fill = 0)
+                           value.var = "n_pairs")
 
 kable(data_summary_wide, 
-      caption = "Number of simulated pairs by population and known relationship",
-      format.args = list(big.mark = ",")) %>%
+      caption = "Number of simulated pairs by population and known relationship<br>For each tested hypothesis:Parent-Child, Full-Siblings",
+      format.args = list(big.mark = ",", scientific = FALSE)) %>%
   kable_styling(bootstrap_options = c("striped", "hover", "condensed"))
-
-cat("\nEach cell shows", params$n_pairs_per_group, "pairs tested under", 
-    length(tested_hypotheses), "hypotheses (Parent-Child, Full-Siblings) across", 
-    length(loci_set_order), "loci sets.\n")
 ```
 
 # Combined LR Distributions
@@ -505,7 +511,7 @@ test_loci_effect <- function(data, pop, known_rel, tested_rel, threshold_col = "
                        dimnames = list(c("Exceed", "Not_Exceed"), as.character(subset$loci_set)))
   
   test_result <- tryCatch(
-    chisq.test(contingency, simulate.p.value = TRUE, B = 2000),
+    chisq.test(contingency),
     error = function(e) NULL
   )
   
@@ -574,7 +580,7 @@ test_pop_effect <- function(data, known_rel, tested_rel, threshold_col = "prop_L
                        dimnames = list(c("Exceed", "Not_Exceed"), as.character(subset$population)))
   
   test_result <- tryCatch(
-    chisq.test(contingency, simulate.p.value = TRUE, B = 2000),
+    chisq.test(contingency),
     error = function(e) NULL
   )
   
@@ -728,6 +734,24 @@ unrel_fp <- proportions_all[loci_set == "autosomal_29" &
                             known_relationship == "unrelated",
                             .(population, tested_relationship, prop_LR_gt_1)]
 print(dcast(unrel_fp, tested_relationship ~ population, value.var = "prop_LR_gt_1"))
+
+# More detailed unrelated FP breakdown
+cat("\n2b. DETAILED UNRELATED FALSE POSITIVE BREAKDOWN:\n")
+unrel_detailed <- proportions_all[loci_set == "autosomal_29" & 
+                                  known_relationship == "unrelated",
+                                  .(population, tested_relationship, 
+                                    n, 
+                                    fp_count = round(prop_LR_gt_1 * n),
+                                    fp_rate_pct = prop_LR_gt_1 * 100)]
+print(unrel_detailed)
+
+cat("\nOverall FP summary:\n")
+overall_summary <- unrel_detailed[, .(
+  total_tests = sum(n),
+  total_fps = sum(fp_count),
+  overall_fp_pct = sum(fp_count) / sum(n) * 100
+), by = tested_relationship]
+print(overall_summary)
 
 cat("\n3. HALF-SIBLING AS FULL-SIBLING FALSE ID (at 29 loci):\n")
 hs_fp <- proportions_all[loci_set == "autosomal_29" & 

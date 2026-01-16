@@ -4,7 +4,7 @@
 #SBATCH --partition=standard
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
-#SBATCH --mem=28G
+#SBATCH --mem=96G
 #SBATCH --time=02:00:00
 #SBATCH --output=logs/analyze_lr_%j.out
 #SBATCH --error=logs/analyze_lr_%j.err
