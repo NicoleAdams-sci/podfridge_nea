@@ -72,6 +72,18 @@ calculate_ratio_stats <- function(all_combined) {
   ]
   
   # 3. De-duplicate the correct set to prevent join inflation (if duplicates exist)
+  # First, check for duplicates and warn user
+  dup_check <- combined_lrs_correct[, .N, by = c("batch_id", "pair_id", "population",
+                                                 "known_relationship", "tested_relationship", "loci_set")]
+  if (any(dup_check$N > 1)) {
+    n_dups <- sum(dup_check$N > 1)
+    warning(paste("Found", n_dups, "duplicate pair combinations in combined_lrs_correct.",
+                  "This should not happen in normal operation.",
+                  "Keeping first occurrence only."))
+    cat("Duplicate combinations:\n")
+    print(dup_check[N > 1])
+  }
+  
   combined_lrs_correct_unique <- unique(combined_lrs_correct,
                                         by = c("batch_id", "pair_id", "population",
                                                "known_relationship", "tested_relationship", "loci_set"))
@@ -93,6 +105,11 @@ calculate_ratio_stats <- function(all_combined) {
   
   # 5. Calculate the ratio (data.table syntax)
   combined_lrs_ratio[, ratio := wrong_LR / correct_LR]
+  
+  # Add diagnostic check
+  n_nan <- sum(is.nan(combined_lrs_ratio$ratio))
+  n_inf <- sum(is.infinite(combined_lrs_ratio$ratio))
+  
   
   # 6. Calculate summary statistics (dplyr syntax)
   # Grouping by all experimental factors and the 'wrong' population used.
