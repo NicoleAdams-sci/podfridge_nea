@@ -33,8 +33,8 @@ source("code/module3_related_individual_simulator.R")
 #' @param n_focal Integer, number of focal individuals to generate
 #' @param relationship_counts Named list specifying number of each relationship type.
 #'        Valid relationship types: "parent_child", "full_siblings", "half_siblings", 
-#'        "first_cousins", "second_cousins", "unrelated"
-#'        Example: list(parent_child = 2, full_siblings = 3, first_cousins = 1)
+#'        "cousins", "second_cousins", "unrelated"
+#'        Example: list(parent_child = 2, full_siblings = 3, cousins = 1)
 #' @param loci_list Character vector, loci to simulate (defaults to all available)
 #' @param allele_frequency_data Data frame with allele frequency data
 #' @param kinship_coefficients Data frame with kinship coefficients
@@ -293,8 +293,8 @@ create_standard_family_structure <- function(family_type) {
   
   structures <- list(
     nuclear = list(parent_child = 2, full_siblings = 2),
-    large_family = list(parent_child = 2, full_siblings = 4, first_cousins = 2),
-    extended = list(parent_child = 2, full_siblings = 3, half_siblings = 1, first_cousins = 3, second_cousins = 2),
+    large_family = list(parent_child = 2, full_siblings = 4, cousins = 2),
+    extended = list(parent_child = 2, full_siblings = 3, half_siblings = 1, cousins = 3, second_cousins = 2),
     minimal = list(parent_child = 1, full_siblings = 1),
     siblings_only = list(full_siblings = 3),
     parent_only = list(parent_child = 2)
@@ -314,7 +314,7 @@ create_standard_family_structure <- function(family_type) {
 # custom_structure <- list(
 #   parent_child = 2,      # 2 parents
 #   full_siblings = 4,     # 4 full siblings
-#   first_cousins = 2      # 2 first cousins
+#   cousins = 2      # 2 first cousins
 # )
 # 
 # result1 <- generate_single_pop_focal(
@@ -328,9 +328,9 @@ create_standard_family_structure <- function(family_type) {
 # 
 # # Example 2: Different structures for different populations
 # population_structures <- list(
-#   AfAm = list(parent_child = 2, full_siblings = 4, first_cousins = 3),  # Large families
+#   AfAm = list(parent_child = 2, full_siblings = 4, cousins = 3),  # Large families
 #   Cauc = list(parent_child = 2, full_siblings = 2),                     # Nuclear families
-#   Hispanic = list(parent_child = 2, full_siblings = 3, first_cousins = 2), # Extended families
+#   Hispanic = list(parent_child = 2, full_siblings = 3, cousins = 2), # Extended families
 #   Asian = list(parent_child = 2, full_siblings = 1)                     # Small families
 # )
 # 
