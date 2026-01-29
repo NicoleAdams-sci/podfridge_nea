@@ -37,6 +37,8 @@ kinship_matrix <- fread("data/kinship_coefficients.csv")
 print(paste("Simulating", N_PAIRS, "pairs for", POP, SHIP))
 tic("simulate_individual_pair")
 
+# Note: The combination (batch_id, pair_id) is globally unique
+# because batch_id is a timestamp that differs for each simulation run
 if (N_PAIRS == 1) {
   # Use single pair function for consistency with original
   pairs <- simulate_individual_pair(loci_list, POP, SHIP, df_allelefreq)
