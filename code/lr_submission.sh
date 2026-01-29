@@ -2,14 +2,32 @@
 # LR Calculation Job Submission Script
 # This script generates the file list and submits the SLURM array job
 
+# Usage: sbatch code/lr_submission.sh           # Default: all chunks (*)
+# Usage: sbatch code/lr_submission.sh 1..20      # First 20k
+# Usage: sbatch code/lr_submission.sh 21..100   	# Unrelated 80k
+
+
 echo "=== LR Calculation Job Submission ==="
 echo "Started at: $(date)"
 
+CHUNK_RANGE=${1:-*}
+
+# Validate chunk range format - check for single dash (common mistake)
+    if [[ "$CHUNK_RANGE" =~ ^[0-9]+-[0-9]+$ ]]; then
+        echo "ERROR: Invalid chunk range format: $CHUNK_RANGE"
+        echo "Use '..' instead of '-' for ranges (e.g., 1..20 not 1-20)"
+        exit 1
+    fi
+
 # Step 1: Generate file list of all pairs CSV files
 echo "Generating file list..."
-#ls output/pairs_*_chunk*.csv > output/lr_file_list.txt 2>/dev/null # for first 10k sim pairs, and default
-#ls output/pairs_*_chunk{11..20}_*.csv > output/lr_file_list.txt # for second 10k sim pairs
-ls output/pairs_*_chunk{21..100}_*.csv > output/lr_file_list.txt	# for unrelated 80k sim pairs
+if [ "$CHUNK_RANGE" = "*" ]; then
+    # Default - match all chunks
+    ls output/pairs_*_chunk*_*.csv > output/lr_file_list.txt 2>/dev/null
+else
+    # Specific range - use eval for brace expansion
+    eval ls output/pairs_*_chunk{${CHUNK_RANGE}}_*.csv > output/lr_file_list.txt 2>/dev/null
+fi
 
 # Check if any files were found
 if [ ! -s output/lr_file_list.txt ]; then
