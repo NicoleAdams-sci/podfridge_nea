@@ -37,7 +37,8 @@ podfridge_simulations/
 │   ├── plots_proportion_exceeding_cutoffs.R  # Threshold analysis
 │   ├── plots_proportion_exceeding_cutoffs.sh # SLURM wrapper
 │   ├── plots_mismatched.sh      # SLURM wrapper for mismatched plots
-│   └── simulation_analysis.sh   # SLURM wrapper for R Markdown report
+│   ├── simulation_analysis.sh   # SLURM wrapper for R Markdown report
+│   └── run_pipeline_bare.sh     # Manual step-by-step reference (copy/paste each section)
 │
 ├── analysis/                # R Markdown analysis scripts and reports
 │   ├── simulation_analysis.Rmd       # Statistical analysis R Markdown
@@ -415,6 +416,16 @@ Post-Processing:
       - Saves to `output/<output_dir>/analysis_results/`
     - Output: `simulation_analysis_YYYYMMDD.html`
 
+#### Pipeline Management Script
+19. **run_pipeline_bare.sh**: Manual step-by-step command reference
+    - Usage: **Do NOT run as a script** - copy/paste each section manually
+    - Features:
+      - Lists all pipeline commands in order
+      - Includes verification commands for each step
+      - Minimal comments - just the essential commands
+      - Designed for interactive execution
+    - Best for: Learning the pipeline, troubleshooting individual steps, manual control
+
 ## Workflow
 
 ### Full Pipeline (Start to Finish)
@@ -569,6 +580,22 @@ sbatch code/simulation_analysis.sh lr_analysis_YYYYMMDD
 
 ### Alternative Workflows
 
+#### Quick Reference:
+**For Manual Step-by-Step Execution:**
+```bash
+# DO NOT RUN AS: bash code/run_pipeline_bare.sh
+# Instead, open the file and copy/paste each section one at a time:
+cat code/run_pipeline_bare.sh
+
+# Copy and paste each section, wait for completion before next section
+# Example:
+sbatch code/sim_pairs.sh
+sbatch code/sim_pairs_unrelated.sh
+# Wait: squeue -u $USER shows no jobs
+# Verify: ls output/pairs_*.csv | wc -l
+# Then proceed to next section...
+```
+
 #### Testing with Small Dataset
 ```bash
 # Simulate small test dataset (100 pairs per chunk, 3 chunks)
@@ -717,28 +744,28 @@ Generated in `output/lr_analysis_YYYYMMDD/analysis_results/`:
 ## Computational Resources Summary
 
 **Total for 1M Pair Pipeline**:
-- **Simulation**: ~50 CPU-hours, <1 GB RAM per task
-- **LR Calculation**: ~1000 CPU-hours, 2 GB RAM per task
-- **Combined LR**: ~2 CPU-hours, 1 GB RAM per task
+- **Simulation**: ~3 minutes, 155 MB RAM per task
+- **LR Calculation**: ~1.5 hours, ~400 MB RAM per task
+- **Combined LR**: ~1 minute, ~95 MB RAM per task
 - **Analysis**: ~20 minutes, 96 GB RAM (single task)
-- **Plotting**: ~15 minutes total, 35-42 GB RAM
-- **Statistical Report**: ~7 minutes, 17 GB RAM
+- **Plotting**: ~20 minutes total, 25-36 GB RAM
+- **Statistical Report**: ~5 minutes, 10 GB RAM
 
 **Storage Requirements**:
-- Simulation files: ~2 GB (1000 files × 2 MB)
-- LR files: ~50 GB (1000 files × 50 MB)
-- Combined LR files: ~8 GB (1000 files × 8 MB)
-- Analysis outputs: ~2 GB
-- Total: ~62 GB for complete pipeline
+- Simulation files: ~1 GB (1000 files × 1 MB)
+- LR files: ~16 GB (1000 files × 16 MB)
+- Combined LR files: ~3.3 GB (1000 files × 3.3 MB)
+- Analysis outputs: ~7.6 GB
+- Total: ~27.3 GB for complete pipeline
 
 **Timeline** (with parallelization):
-- Step 1 (Simulation): ~1 hour wall time (array parallelization)
-- Step 2 (LR Calc): ~2 hours wall time (array parallelization)
-- Step 3 (Combined LR): ~5 minutes wall time (array parallelization)
+- Step 1 (Simulation): ~3 hour wall time (array parallelization)
+- Step 2 (LR Calc): ~1.5 hours wall time (array parallelization)
+- Step 3 (Combined LR): ~1 minutes wall time (array parallelization)
 - Step 4 (Analysis): ~20 minutes
-- Step 5 (Plotting): ~15 minutes
-- Step 6 (Report): ~7 minutes
-- **Total**: ~4 hours from start to final report
+- Step 5 (Plotting): ~15-20 minutes
+- Step 6 (Report): ~10 minutes
+- **Total**: ~5 hours from start to final report
 
 ---
 
