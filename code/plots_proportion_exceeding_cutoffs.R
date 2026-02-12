@@ -120,6 +120,9 @@ proportions_all <- proportions_exceeding_cutoffs %>%
     prop_LR_gt_1000 = proportion_exceeding_0_01
   )
 
+# convert to data.table
+setDT(proportions_all)
+
 # Save enhanced proportions
 fwrite(proportions_all, file.path(output_dir, "proportions_with_classification.csv"))
 
