@@ -184,7 +184,7 @@ for (rel in relationships_to_test) {
     # Save to PDF (add to the open PDF file)
     print(box.p)
     
-    box.name <- paste0(rel, "_LRboxplot_", pop, ".png")
+    box.name <- paste0(gsub(" ", "_", rel), "_LRboxplot_", pop, ".png")
     ggsave(file.path(output_dir, box.name), plot = box.p, width = 11, height = 8, bg = "white")
     
   }
