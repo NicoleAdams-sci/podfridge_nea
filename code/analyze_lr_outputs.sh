@@ -96,6 +96,3 @@ echo "================================================"
 echo "Job completed at: $(date)"
 echo "Total runtime: ${SECONDS} seconds"
 echo "================================================"
-
-# Generate efficiency report
-seff ${SLURM_JOB_ID}
