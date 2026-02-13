@@ -92,10 +92,17 @@ For HPC cluster submission:
 | File | Purpose |
 |------|---------|
 | `sim_pairs.sh` | SLURM array job for parallel pair simulation (5 pops × 6 relationships × 10 chunks) |
+| `sim_pairs_unrelated.sh` | SLURM wrapper for simulating unrelated pairs |
 | `lr_submission.sh` | Generates file list and submits LR calculation jobs |
 | `lr_wrapper.sh` | SLURM wrapper for `lr_wrapper.R` |
 | `combined_lr_submission.sh` | Submits combined LR calculation jobs |
 | `combined_lr.sh` | SLURM wrapper for `combined_lr_wrapper.R` |
+| `analyze_lr_outputs.sh` | SLURM wrapper for `analyze_lr_outputs.R` |
+| `simulation_analysis.sh` | Workflow script for running analysis pipeline |
+| `plots_mismatched.sh` | SLURM wrapper for `plots_mismatched.R` |
+| `plots_proportion_exceeding_cutoffs.sh` | SLURM wrapper for `plots_proportion_exceeding_cutoffs.R` |
+
+**Note:** Most R wrapper and plotting scripts have corresponding `.sh` SLURM submission scripts for cluster execution.
 
 ---
 
