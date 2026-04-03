@@ -5,6 +5,17 @@
 # Creates:
 #   1. Main text figure: Violin plots by relationship type (all populations)
 #   2. Supplement figure: Box plots by population (showing consistency)
+#   3. Statistical summary table (CSV) for results section
+#
+# Statistical tests:
+#   - Kruskal-Wallis + epsilon-squared effect size: LR ~ relationship type
+#     (per loci set, "all" population) 
+#   - Spearman correlation: median log10(LR) ~ loci count (per relationship)
+#   - Kruskal-Wallis + epsilon-squared: population effect at Autosomal 29
+#     (per relationship type)
+#
+# NOTE: With large simulation sample sizes, p-values will be near-zero for
+# most tests. Effect sizes (epsilon-squared) are the informative statistic.
 #
 # Date: 2026-03-06
 # ==============================================================================
@@ -14,7 +25,8 @@ suppressMessages(suppressWarnings({
   library(tidyverse)
   library(data.table)
   library(scales)
-  library(patchwork)  # For combining plots if needed
+  library(patchwork)
+  library(rstatix)   # For kruskal_effsize (epsilon-squared)
 }))
 
 # Helper Functions ----
@@ -44,47 +56,78 @@ dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)
 COMBINED_LR_MATCH_FILE <- "combined_LR_match.csv"
 
 # Factor levels for consistent ordering
-relationship_order <- c("parent_child", "full_siblings", "half_siblings", 
-                        "cousins", "second_cousins", "unrelated")
-relationship_labels <- c("Parent-Child", "Full Siblings", "Half Siblings", 
+relationship_order  <- c("parent_child", "full_siblings", "half_siblings",
+                         "cousins", "second_cousins", "unrelated")
+relationship_labels <- c("Parent-Child", "Full Siblings", "Half Siblings",
                          "Cousins", "Second Cousins", "Unrelated")
 names(relationship_labels) <- relationship_order
 
-loci_set_order <- c("core_13", "identifiler_15", "expanded_20", 
-                    "supplementary", "autosomal_29")
-loci_set_labels <- c("Core 13", "Identifiler 15", "Expanded 20", 
+loci_set_order  <- c("core_13", "identifiler_15", "expanded_20",
+                     "supplementary", "autosomal_29")
+loci_set_labels <- c("Core 13", "Identifiler 15", "Expanded 20",
                      "Supplementary", "Autosomal 29")
 names(loci_set_labels) <- loci_set_order
 
-# Color palettes ----
-# For relationship types - colorblind-friendly palette
+# Approximate locus counts per panel (used for Spearman correlation)
+# Supplementary is approximate; use rank order if exact count is uncertain
+loci_counts <- c(
+  "Core 13"       = 13,
+  "Identifiler 15" = 15,
+  "Expanded 20"   = 20,
+  "Supplementary" = 23,
+  "Autosomal 29"  = 29
+)
+
+# ==============================================================================
+# COLOR PALETTES — Shared across scripts
+# ==============================================================================
+# Both palettes draw from the Okabe-Ito colorblind-safe set.
+# Relationship and population colors are intentionally non-overlapping so
+# figures using both can be placed side by side without confusion.
+#
+# Okabe-Ito full palette (8 colors):
+#   #E69F00  #56B4E9  #009E73  #F0E442  #0072B2  #D55E00  #CC79A7  #000000
+#
+# Relationship colors use: #D55E00 #E69F00 #56B4E9 #009E73 #CC79A7 #999999
+# Population colors use:   #0072B2 #009E73 #56B4E9 #CC79A7 #999999
+# (overlap in population/relationship is acceptable — they never share a plot)
+
+# Relationship type colors (Okabe-Ito — warm to cool, most to least related)
 relationship_colors <- c(
-  "Parent-Child" = "#D55E00",      # Vermillion
-  "Full Siblings" = "#E69F00",     # Orange  
-  "Half Siblings" = "#56B4E9",     # Sky blue
-  "Cousins" = "#009E73",           # Bluish green
-  "Second Cousins" = "#CC79A7",    # Reddish purple
-  "Unrelated" = "#999999"          # Gray
+  "Parent-Child"   = "#D55E00",   # Vermillion
+  "Full Siblings"  = "#E69F00",   # Orange
+  "Half Siblings"  = "#56B4E9",   # Sky blue
+  "Cousins"        = "#009E73",   # Bluish green
+  "Second Cousins" = "#CC79A7",   # Reddish purple
+  "Unrelated"      = "#999999"    # Gray
 )
 
-# For populations
+# Population colors (Okabe-Ito subset — distinct from relationship palette)
 population_colors <- c(
-  "AfAm" = "#E41A1C", 
-  "Asian" = "#377EB8", 
-  "Cauc" = "#4DAF4A", 
-  "Hispanic" = "#984EA3", 
-  "all" = "#FF7F00"
+  "AfAm"     = "#0072B2",   # Deep blue
+  "Asian"    = "#009E73",   # Bluish green
+  "Cauc"     = "#56B4E9",   # Sky blue
+  "Hispanic" = "#CC79A7",   # Reddish purple
+  "all"      = "#999999"    # Gray (combined)
 )
 
+population_labels <- c(
+  "AfAm"     = "African American",
+  "Asian"    = "Asian",
+  "Cauc"     = "Caucasian",
+  "Hispanic" = "Hispanic",
+  "all"      = "All Populations"
+)
+
+# ==============================================================================
 # Data Loading ----
+# ==============================================================================
 log_message("Loading matched LR data...")
 
 raw_lrs_path <- file.path(input_dir, COMBINED_LR_MATCH_FILE)
 combined_lrs_match <- fread(raw_lrs_path) %>%
   as_tibble() %>%
-  # Filter for population and relationship matched only
   filter(is_correct_pop == TRUE, known_relationship == tested_relationship) %>%
-  # Apply factor labels
   mutate(
     combined_LR = as.numeric(combined_LR),
     relationship = factor(
@@ -97,7 +140,11 @@ combined_lrs_match <- fread(raw_lrs_path) %>%
       levels = loci_set_order,
       labels = loci_set_labels
     ),
-    population = factor(population, levels = c("AfAm", "Asian", "Cauc", "Hispanic", "all")),
+    population = factor(
+      population,
+      levels = c("AfAm", "Asian", "Cauc", "Hispanic", "all"),
+      labels = c("AfAm", "Asian", "Cauc", "Hispanic", "all")
+    ),
     log_LR = log10(combined_LR)
   )
 
@@ -106,204 +153,313 @@ log_message(paste("Loaded", nrow(combined_lrs_match), "matched LR observations")
 # ==============================================================================
 # MAIN TEXT FIGURE: All Populations Combined
 # ==============================================================================
-
 log_message("Creating main text figure...")
 
-# Filter for combined population data
 main_data <- combined_lrs_match %>%
   filter(population == "all")
 
-# Create violin plot with clean publication styling
 fig_main <- ggplot(main_data, aes(x = relationship, y = log_LR, fill = relationship)) +
-  # Violin plots showing full distribution
   geom_violin(
     alpha = 0.7,
     draw_quantiles = c(0.25, 0.5, 0.75),
     scale = "width",
     trim = TRUE
   ) +
-  # Add mean as a point
   stat_summary(
-    fun = mean,
+    fun  = mean,
     geom = "point",
-    size = 2,
+    size = 2.5,
     color = "black",
-    shape = 18  # Diamond shape
+    shape = 18
   ) +
-  # Facet by loci set
   facet_wrap(~ loci_set, ncol = 5, scales = "fixed") +
-  # Apply color scheme
   scale_fill_manual(values = relationship_colors) +
-  # Format y-axis as 10^x
   scale_y_continuous(
     breaks = seq(0, 40, 10),
     labels = trans_format("identity", math_format(10^.x)),
     limits = c(-5, 40)
   ) +
-  # Labels
   labs(
-    x = NULL,
-    y = expression(paste("Combined Likelihood Ratio (", log[10], " scale)")),
+    x    = NULL,
+    y    = expression(paste("Combined Likelihood Ratio (", log[10], " scale)")),
     fill = "Relationship Type"
   ) +
-  # Clean theme
-  theme_bw(base_size = 11) +
+  theme_bw(base_size = 14) +   # increased from 11
   theme(
-    # Remove x-axis text since legend shows relationships
-    axis.text.x = element_blank(),
-    axis.ticks.x = element_blank(),
-    # Format axis text
-    axis.text.y = element_text(size = 10),
-    axis.title.y = element_text(size = 11, face = "bold"),
-    # Format facet labels
-    strip.text = element_text(size = 10, face = "bold"),
-    strip.background = element_rect(fill = "gray90", color = "gray60"),
-    # Legend at bottom
-    legend.position = "bottom",
-    legend.title = element_text(size = 10, face = "bold"),
-    legend.text = element_text(size = 9),
-    # Panel formatting
+    axis.text.x        = element_blank(),
+    axis.ticks.x       = element_blank(),
+    axis.text.y        = element_text(size = 13),
+    axis.title.y       = element_text(size = 14, face = "bold"),
+    strip.text         = element_text(size = 13, face = "bold"),
+    strip.background   = element_rect(fill = "gray90", color = "gray60"),
+    legend.position    = "bottom",
+    legend.title       = element_text(size = 13, face = "bold"),
+    legend.text        = element_text(size = 12),
     panel.grid.major.x = element_blank(),
-    panel.grid.minor = element_blank(),
-    panel.spacing = unit(0.8, "lines"),
-    # Plot margins
-    plot.margin = margin(10, 10, 10, 10)
+    panel.grid.minor   = element_blank(),
+    panel.spacing      = unit(0.8, "lines"),
+    plot.margin        = margin(10, 10, 10, 10)
   ) +
-  # Format legend
   guides(fill = guide_legend(nrow = 1, override.aes = list(alpha = 0.8)))
 
-# Save main figure
 ggsave(
   file.path(output_dir, "matched_main_lr_distributions.pdf"),
-  plot = fig_main,
-  width = 12,
-  height = 5,
-  units = "in",
-  bg = "white"
+  plot = fig_main, width = 12, height = 5, units = "in", bg = "white"
 )
-
 ggsave(
   file.path(output_dir, "matched_main_lr_distributions.png"),
-  plot = fig_main,
-  width = 12,
-  height = 5,
-  units = "in",
-  dpi = 300,
-  bg = "white"
+  plot = fig_main, width = 12, height = 5, units = "in", dpi = 300, bg = "white"
 )
-
 log_message("Main text figure saved")
 
 # ==============================================================================
 # SUPPLEMENT FIGURE: By Population
 # ==============================================================================
-
 log_message("Creating supplement figure...")
 
-# Use all populations including "all" (which uses combined allele frequencies)
 supp_data <- combined_lrs_match
 
-# Create box plot showing consistency across populations
 fig_supp <- ggplot(supp_data, aes(x = relationship, y = log_LR, fill = population)) +
-  # Box plots with smaller outlier points
   geom_boxplot(
-    position = position_dodge(width = 0.85),
-    alpha = 0.75,
-    outlier.size = 0.3,
+    position     = position_dodge(width = 0.85),
+    alpha        = 0.75,
+    outlier.size  = 0.3,
     outlier.alpha = 0.3,
-    linewidth = 0.4
+    linewidth    = 0.4
   ) +
-  # Facet by loci set
   facet_wrap(~ loci_set, ncol = 3, scales = "fixed") +
-  # Apply population colors
   scale_fill_manual(
     values = population_colors,
-    labels = c("African American", "Asian", "Caucasian", "Hispanic", "All Populations")
+    labels = population_labels
   ) +
-  # Format y-axis
   scale_y_continuous(
     breaks = seq(0, 40, 10),
     labels = trans_format("identity", math_format(10^.x)),
     limits = c(-5, 40)
   ) +
-  # Labels
   labs(
-    x = "Relationship Type",
-    y = expression(paste("Combined Likelihood Ratio (", log[10], " scale)")),
+    x    = "Relationship Type",
+    y    = expression(paste("Combined Likelihood Ratio (", log[10], " scale)")),
     fill = "Population"
   ) +
-  # Clean theme
-  theme_bw(base_size = 11) +
+  theme_bw(base_size = 14) +   # increased from 11
   theme(
-    # Format axis text
-    axis.text.x = element_text(angle = 45, hjust = 1, size = 9),
-    axis.text.y = element_text(size = 10),
-    axis.title = element_text(size = 11, face = "bold"),
-    # Format facet labels
-    strip.text = element_text(size = 10, face = "bold"),
+    axis.text.x      = element_text(angle = 45, hjust = 1, size = 12),
+    axis.text.y      = element_text(size = 13),
+    axis.title       = element_text(size = 14, face = "bold"),
+    strip.text       = element_text(size = 13, face = "bold"),
     strip.background = element_rect(fill = "gray90", color = "gray60"),
-    # Legend at bottom
-    legend.position = "bottom",
-    legend.title = element_text(size = 10, face = "bold"),
-    legend.text = element_text(size = 9),
-    # Panel formatting
+    legend.position  = "bottom",
+    legend.title     = element_text(size = 13, face = "bold"),
+    legend.text      = element_text(size = 12),
     panel.grid.minor = element_blank(),
-    panel.spacing = unit(1, "lines"),
-    # Plot margins
-    plot.margin = margin(10, 10, 10, 10)
+    panel.spacing    = unit(1, "lines"),
+    plot.margin      = margin(10, 10, 10, 10)
   ) +
-  # Format legend
   guides(fill = guide_legend(nrow = 1, override.aes = list(alpha = 0.8)))
 
-# Save supplement figure
 ggsave(
   file.path(output_dir, "matched_supp_lr_by_population.pdf"),
-  plot = fig_supp,
-  width = 12,
-  height = 10,
-  units = "in",
-  bg = "white"
+  plot = fig_supp, width = 12, height = 10, units = "in", bg = "white"
 )
-
 ggsave(
   file.path(output_dir, "matched_supp_lr_by_population.png"),
-  plot = fig_supp,
-  width = 12,
-  height = 10,
-  units = "in",
-  dpi = 300,
-  bg = "white"
+  plot = fig_supp, width = 12, height = 10, units = "in", dpi = 300, bg = "white"
 )
-
 log_message("Supplement figure saved")
 
 # ==============================================================================
-# Summary Statistics for Results Section
+# STATISTICAL TESTS
+# ==============================================================================
+# Three targeted tests aligned with the matched results narrative:
+#
+#   TEST 1: Does log10(LR) differ by relationship type?
+#           Kruskal-Wallis per loci set ("all" population only)
+#           + epsilon-squared (ε²) effect size
+#           ε² interpretation: small ≥ 0.01, medium ≥ 0.06, large ≥ 0.14
+#
+#   TEST 2: Does log10(LR) increase with more loci?
+#           Spearman correlation of median log10(LR) vs. locus count,
+#           per relationship type
+#
+#   TEST 3: Does population affect log10(LR) in the matched analysis?
+#           Kruskal-Wallis per relationship type at Autosomal 29 only
+#           + epsilon-squared effect size
+#           (uses named populations only, excludes "all")
 # ==============================================================================
 
-log_message("Calculating summary statistics for manuscript...")
+log_message("Running statistical tests...")
 
-# Calculate key statistics for the "all" population
+# ------------------------------------------------------------------------------
+# TEST 1: Relationship type effect per loci set
+# ------------------------------------------------------------------------------
+# Two-step approach to avoid cur_data() segfault with large datasets:
+# Step 1a: Kruskal-Wallis test statistics via summarise
+kw_rel_test <- main_data %>%
+  group_by(loci_set) %>%
+  summarise(
+    kw_statistic = kruskal.test(log_LR ~ relationship)$statistic,
+    kw_df        = kruskal.test(log_LR ~ relationship)$parameter,
+    kw_p_value   = kruskal.test(log_LR ~ relationship)$p.value,
+    n_pairs      = n(),
+    .groups = "drop"
+  )
+
+# Step 1b: Epsilon-squared via group_modify (avoids cur_data() crash)
+kw_rel_effsize <- main_data %>%
+  group_by(loci_set) %>%
+  group_modify(~ {
+    es <- kruskal_effsize(data = .x, formula = log_LR ~ relationship, ci = FALSE)
+    tibble(epsilon_sq = es$effsize, effect_size_magnitude = as.character(es$magnitude))
+  }) %>%
+  ungroup()
+
+kw_relationship <- left_join(kw_rel_test, kw_rel_effsize, by = "loci_set") %>%
+  mutate(
+    test     = "Kruskal-Wallis",
+    variable = "Relationship type",
+    note     = "All populations combined (population = 'all')"
+  )
+
+cat("\n=== TEST 1: Relationship Type Effect (per loci set) ===\n")
+print(kw_relationship %>%
+  select(loci_set, kw_statistic, kw_df, kw_p_value, epsilon_sq, effect_size_magnitude))
+
+# ------------------------------------------------------------------------------
+# TEST 2: Loci count effect on median log10(LR) per relationship
+# ------------------------------------------------------------------------------
+# Compute median log10(LR) per relationship x loci set, then correlate with
+# locus count. Uses "all" population data (same as main figure).
+median_by_loci <- main_data %>%
+  group_by(relationship, loci_set) %>%
+  summarise(median_logLR = median(log_LR), .groups = "drop") %>%
+  mutate(loci_count = loci_counts[as.character(loci_set)])
+
+spearman_loci <- median_by_loci %>%
+  group_by(relationship) %>%
+  summarise(
+    spearman_rho = cor(loci_count, median_logLR, method = "spearman"),
+    spearman_p   = cor.test(loci_count, median_logLR,
+                            method = "spearman", exact = FALSE)$p.value,
+    n_loci_sets  = n(),
+    .groups = "drop"
+  ) %>%
+  mutate(
+    test     = "Spearman correlation",
+    variable = "Loci count vs. median log10(LR)"
+  )
+
+cat("\n=== TEST 2: Loci Count Effect (Spearman, per relationship) ===\n")
+print(spearman_loci %>% select(relationship, spearman_rho, spearman_p))
+
+# ------------------------------------------------------------------------------
+# TEST 3: Population effect at Autosomal 29
+# ------------------------------------------------------------------------------
+pop_data_29 <- combined_lrs_match %>%
+  filter(loci_set == "Autosomal 29",
+         population != "all")   # exclude pooled population
+
+# Step 3a: Kruskal-Wallis test statistics
+kw_pop_test <- pop_data_29 %>%
+  group_by(relationship) %>%
+  summarise(
+    kw_statistic = kruskal.test(log_LR ~ population)$statistic,
+    kw_df        = kruskal.test(log_LR ~ population)$parameter,
+    kw_p_value   = kruskal.test(log_LR ~ population)$p.value,
+    n_pairs      = n(),
+    .groups = "drop"
+  )
+
+# Step 3b: Epsilon-squared via group_modify
+kw_pop_effsize <- pop_data_29 %>%
+  group_by(relationship) %>%
+  group_modify(~ {
+    es <- kruskal_effsize(data = .x, formula = log_LR ~ population, ci = FALSE)
+    tibble(epsilon_sq = es$effsize, effect_size_magnitude = as.character(es$magnitude))
+  }) %>%
+  ungroup()
+
+kw_population <- left_join(kw_pop_test, kw_pop_effsize, by = "relationship") %>%
+  mutate(
+    test     = "Kruskal-Wallis",
+    variable = "Population (at Autosomal 29)",
+    note     = "Named populations only (AfAm, Asian, Cauc, Hispanic)"
+  )
+
+cat("\n=== TEST 3: Population Effect at Autosomal 29 ===\n")
+print(kw_population %>%
+  select(relationship, kw_statistic, kw_df, kw_p_value, epsilon_sq, effect_size_magnitude))
+
+# ------------------------------------------------------------------------------
+# Compile and save statistical summary table
+# ------------------------------------------------------------------------------
+stats_table <- bind_rows(
+  # Test 1
+  kw_relationship %>%
+    transmute(
+      test,
+      question    = "Does LR differ by relationship type?",
+      grouping    = as.character(loci_set),
+      statistic   = round(kw_statistic, 2),
+      df          = kw_df,
+      p_value     = formatC(kw_p_value, format = "e", digits = 2),
+      epsilon_sq  = round(epsilon_sq, 3),
+      magnitude   = effect_size_magnitude,
+      note
+    ),
+  # Test 2
+  spearman_loci %>%
+    transmute(
+      test,
+      question    = "Does LR increase with more loci?",
+      grouping    = as.character(relationship),
+      statistic   = round(spearman_rho, 3),
+      df          = NA_real_,
+      p_value     = formatC(spearman_p, format = "e", digits = 2),
+      epsilon_sq  = NA_real_,
+      magnitude   = NA_character_,
+      note        = "rho = Spearman rank correlation coefficient"
+    ),
+  # Test 3
+  kw_population %>%
+    transmute(
+      test,
+      question    = "Does population affect LR (matched analysis)?",
+      grouping    = as.character(relationship),
+      statistic   = round(kw_statistic, 2),
+      df          = kw_df,
+      p_value     = formatC(kw_p_value, format = "e", digits = 2),
+      epsilon_sq  = round(epsilon_sq, 3),
+      magnitude   = effect_size_magnitude,
+      note        = "Autosomal 29 only; named populations (excludes 'all')"
+    )
+)
+
+write_csv(stats_table,
+          file.path(output_dir, "matched_statistical_tests.csv"))
+log_message("Statistical test results saved to matched_statistical_tests.csv")
+
+cat("\n=== FULL STATISTICAL SUMMARY TABLE ===\n")
+print(stats_table, n = Inf)
+
+# Descriptive Summary Statistics (unchanged from original)
+# ==============================================================================
+log_message("Calculating descriptive summary statistics...")
+
 summary_stats <- main_data %>%
   group_by(relationship, loci_set) %>%
   summarise(
-    mean_logLR = mean(log_LR),
+    mean_logLR   = mean(log_LR),
     median_logLR = median(log_LR),
-    sd_logLR = sd(log_LR),
-    q25 = quantile(log_LR, 0.25),
-    q75 = quantile(log_LR, 0.75),
-    .groups = 'drop'
+    sd_logLR     = sd(log_LR),
+    q25          = quantile(log_LR, 0.25),
+    q75          = quantile(log_LR, 0.75),
+    .groups = "drop"
   ) %>%
   arrange(loci_set, desc(mean_logLR))
 
-# Save summary statistics
-write_csv(
-  summary_stats,
-  file.path(output_dir, "matched_summary_statistics_for_ms.csv")
-)
-
-# Print key findings to console
-log_message("\n=== Key Findings for Results Section ===")
+write_csv(summary_stats,
+          file.path(output_dir, "matched_summary_statistics_for_ms.csv"))
 
 # Parent-child LRs across loci sets
 pc_stats <- summary_stats %>%
@@ -318,44 +474,9 @@ unrel_stats <- summary_stats %>%
   filter(relationship == "Unrelated") %>%
   select(loci_set, mean_logLR, sd_logLR)
 
-cat("\nUnrelated mean log10(LR) by loci set (should be ~0):\n")
+cat("\nUnrelated mean log10(LR) by loci set (expected ~0):\n")
 print(unrel_stats, n = Inf)
 
-# Calculate separation between adjacent relationship types
-# (e.g., Full Sibs vs Half Sibs)
-separation_stats <- summary_stats %>%
-  arrange(loci_set, relationship) %>%
-  group_by(loci_set) %>%
-  mutate(
-    separation_from_next = mean_logLR - lead(mean_logLR)
-  ) %>%
-  filter(!is.na(separation_from_next)) %>%
-  select(loci_set, relationship, mean_logLR, separation_from_next)
 
-cat("\nSeparation between adjacent relationship types:\n")
-print(separation_stats, n = Inf)
-
-# Population consistency check
-pop_consistency <- combined_lrs_match %>%
-  filter(population != "all") %>%
-  group_by(relationship, loci_set, population) %>%
-  summarise(mean_logLR = mean(log_LR), .groups = 'drop') %>%
-  group_by(relationship, loci_set) %>%
-  summarise(
-    mean_across_pops = mean(mean_logLR),
-    sd_across_pops = sd(mean_logLR),
-    cv_across_pops = sd(mean_logLR) / mean(mean_logLR),
-    .groups = 'drop'
-  ) %>%
-  arrange(loci_set, desc(mean_across_pops))
-
-cat("\nPopulation consistency (low CV = consistent across populations):\n")
-print(pop_consistency, n = Inf)
-
-write_csv(
-  pop_consistency,
-  file.path(output_dir, "population_consistency_check.csv")
-)
-
-log_message("\n=== Script Complete ===")
-log_message(paste("Figures saved to:", output_dir))
+log_message("=== Script Complete ===")
+log_message(paste("All outputs saved to:", output_dir))
