@@ -9,9 +9,9 @@
 #SBATCH --output=logs/plot_mismatch_pop_%j.out
 #SBATCH --error=logs/plot_mismatch_pop_%j.err
 
-# Usage: sbatch code/plot_mismatched_wrapper.sh <input_dir> [output_subdir]
-# Example: sbatch code/plot_mismatched_wrapper.sh output/lr_analysis_20250105
-# Example with custom output: sbatch code/plot_mismatched_wrapper.sh output/lr_analysis_20250105 mismatched_plots_final
+# Usage: sbatch code/plot_mismatched.sh <input_dir> [output_subdir]
+# Example: sbatch code/plot_mismatched.sh output/lr_analysis_20250105
+# Example with custom output: sbatch code/plot_mismatched.sh output/lr_analysis_20250105 mismatched_plots_final
 
 # Create logs directory if it doesn't exist
 mkdir -p logs
@@ -22,7 +22,7 @@ module load Rtidyverse
 # Get input directory from command line argument or use default
 if [ -z "$1" ]; then
     echo "ERROR: Input directory required"
-    echo "Usage: sbatch code/plot_mismatched_wrapper.sh <input_dir> [output_subdir]"
+    echo "Usage: sbatch code/plot_mismatched.sh <input_dir> [output_subdir]"
     exit 1
 fi
 
