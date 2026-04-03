@@ -29,6 +29,7 @@
 suppressMessages(suppressWarnings({
   library(tidyverse)
   library(scales)
+  library(patchwork)
 }))
 
 log_message <- function(msg) cat(paste0("[", Sys.time(), "] ", msg, "\n"))
@@ -102,12 +103,13 @@ relationship_colors <- c(
 )
 
 population_colors <- c(
-  "AfAm"     = "#E41A1C",
-  "Asian"    = "#377EB8",
-  "Cauc"     = "#4DAF4A",
-  "Hispanic" = "#984EA3",
-  "all"      = "#FF7F00"
+  "AfAm"     = "#0072B2",   # Deep blue
+  "Asian"    = "#009E73",   # Bluish green
+  "Cauc"     = "#56B4E9",   # Sky blue
+  "Hispanic" = "#CC79A7",   # Reddish purple
+  "all"      = "#999999"    # Gray (combined)
 )
+
 
 # Classification outcome colors
 classification_colors <- c(
@@ -117,10 +119,10 @@ classification_colors <- c(
 )
 
 # Shared publication theme applied to both figures for visual consistency
-theme_publication <- function(base_size = 11) {
+theme_publication <- function(base_size = 14) {
   theme_minimal(base_size = base_size) +
     theme(
-      plot.title      = element_text(hjust = 0.5, size = base_size + 3, face = "bold"),
+      plot.title      = element_text(hjust = 0.5, size = base_size + 3),
       plot.subtitle   = element_text(hjust = 0.5, size = base_size + 1, color = "grey40"),
       plot.caption    = element_text(hjust = 0, size = base_size - 2, color = "grey50"),
       axis.title      = element_text(size = base_size + 1),
@@ -181,39 +183,39 @@ fig1_data <- proportions_all %>%
 figure1 <- ggplot(
   fig1_data,
   aes(
-    x    = known_relationship,
+    x    = classification,
     y    = prop_LR_gt_1000,     # prop_LR_gt_1000 = proportion exceeding 0.01% FPR cutoff
-    fill = classification
+    fill = population
   )
 ) +
   geom_col(position = position_dodge(width = 0.85), width = 0.8) +
   facet_grid(
-    tested_relationship ~ population,
+    tested_relationship ~ known_relationship,
+    scales = "free_y",
     labeller = labeller(
       tested_relationship = as_labeller(hypothesis_labels),
-      population          = as_labeller(population_labels)
+      known_relationship          = as_labeller(relationship_labels)
     )
   ) +
-  scale_fill_manual(values = classification_colors, name = "Classification") +
-  scale_x_discrete(labels = relationship_labels) +
+  scale_fill_manual(values = population_colors, name = "Population",
+                    labels = population_labels) +
+  #scale_x_discrete(labels = relationship_labels) +
   scale_y_continuous(
-    labels = percent_format(accuracy = 1),
-    limits = c(0, 1),
-    breaks = seq(0, 1, by = 0.25)
+    labels = percent_format(accuracy = 0.001)
   ) +
   labs(
     title    = "LR Classification Performance at 29 Autosomal Loci",
     subtitle = "Threshold: 0.01% false positive rate among unrelated pairs",
-    x        = "True Relationship",
+    x        = "Classification",
     y        = "Proportion of pairs with LR > threshold"
   ) +
-  theme_publication(base_size = 11)
+  theme_publication(base_size = 14)
 
 ggsave(
   filename = file.path(output_dir, "cutoff_classification_0.01fpr_29loci.png"),
   plot     = figure1,
   width    = 18,
-  height   = 6,
+  height   = 10,
   dpi      = 300,
   bg       = "white"
 )
@@ -273,7 +275,7 @@ figure2 <- ggplot(
   scale_fill_manual(values = classification_colors, name = "Classification") +
   scale_x_discrete(labels = relationship_labels) +
   scale_y_continuous(
-    labels = percent_format(accuracy = 1),
+    labels = percent_format(accuracy = 0.001),
     limits = c(0, 1),
     breaks = seq(0, 1, by = 0.25)
   ) +
@@ -283,7 +285,7 @@ figure2 <- ggplot(
     x        = "True Relationship",
     y        = "Proportion of pairs with LR > threshold"
   ) +
-  theme_publication(base_size = 11)
+  theme_publication(base_size = 14)
 
 ggsave(
   filename = file.path(output_dir, "cutoff_classification_fpr_29loci.png"),
@@ -333,57 +335,59 @@ fig3_data <- proportions_all %>%
   # group_by(known_relationship, loci_set, tested_relationship, threshold, classification) %>%
   # summarise(mean_proportion = mean(proportion, na.rm = TRUE), .groups = "drop")
 
-figure3 <- ggplot(
-  fig3_data,
-  aes(
-    x    = loci_set,
-    y    = known_relationship,
-    fill = proportion
-  )
-) +
-  geom_tile(color = "white", linewidth = 0.4) +
-  # Annotate each cell with the rounded percentage so exact values are readable
-  geom_text(
-    aes(
-      label = percent(proportion, accuracy = 1),
-      color = proportion > 0.55   # white text on dark cells, dark text on light
-    ),
-    size = 2.8
+make_heatmap <- function(data, hypothesis, panel_title) {
+  ggplot(data %>% filter(tested_relationship == hypothesis),
+         aes(x = loci_set, y = known_relationship, fill = proportion)
   ) +
-  scale_color_manual(values = c("TRUE" = "white", "FALSE" = "grey20"), guide = "none") +
-  facet_grid(
-    population + tested_relationship ~ threshold,
-    labeller = labeller(
-      tested_relationship = as_labeller(hypothesis_labels),
-      population          = as_labeller(population_labels)
+    geom_tile(color = "white", linewidth = 0.4) +
+    geom_text(
+      aes(
+        label = percent(proportion, accuracy = 0.001),
+        color = proportion > 0.55
+      ),
+      size = 2.8
+    ) +
+    scale_color_manual(values = c("TRUE" = "white", "FALSE" = "grey20"), guide = "none") +
+    facet_grid(
+      population ~ threshold,
+      labeller = labeller(
+        population = as_labeller(population_labels)
+      )
+    ) +
+    scale_fill_distiller(
+      palette   = "YlOrRd",
+      direction = 1,
+      limits    = c(0, 1),
+      labels    = percent_format(accuracy = 0.001),
+      name      = "False positive rate"
+    ) +
+    scale_x_discrete(labels = loci_set_labels) +
+    scale_y_discrete(labels = relationship_labels) +
+    labs(x = "Loci Panel", y = "True Relationship", title = panel_title) +
+    theme_publication(base_size = 12) +
+    theme(
+      panel.grid.major = element_blank(),
+      axis.text.x      = element_text(angle = 30, hjust = 1)
     )
-  ) +
-  scale_fill_distiller(
-    palette   = "YlOrRd",
-    direction = 1,
-    limits    = c(0, 1),
-    labels    = percent_format(accuracy = 1),
-    name      = "False positive rate"
-  ) +
-  scale_x_discrete(labels = loci_set_labels) +
-  scale_y_discrete(labels = relationship_labels) +
-  labs(
-    title    = "False Positive Rates Across Loci Panels and LR Thresholds",
-    #subtitle = "Proportions averaged across African American, Asian, Caucasian, and Hispanic populations",
-    x        = "Loci Panel",
-    y        = "True Relationship"
-  ) +
-  theme_publication(base_size = 10) +
-  theme(
-    panel.grid.major = element_blank(),   # remove grid lines — they interfere with tile borders
-    axis.text.x      = element_text(angle = 30, hjust = 1)
-  )
+}
+
+
+fig3a <- make_heatmap(fig3_data, "parent_child", "Parent-Child Test")
+fig3b <- make_heatmap(fig3_data, "full_siblings", "Full Siblings Test")
+
+figure3 <- (fig3a / fig3b) +
+  plot_layout(guides = "collect") +
+  plot_annotation(
+    title      = "False Positive Rates Across Loci Panels and LR Thresholds",
+    tag_levels = "A"
+  ) &
+  theme(legend.position = "bottom")   # the & applies to all panels including collected legend
 
 ggsave(
   filename = file.path(output_dir, "cutoff_supp_heatmap_fp_rates.png"),
   plot     = figure3,
-  width    = 14,
-  height   = 14,
+  width    = 16,
+  height   = 20,
   dpi      = 300,
   bg       = "white"
 )
