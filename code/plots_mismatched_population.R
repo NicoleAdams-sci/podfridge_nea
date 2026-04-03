@@ -7,7 +7,7 @@
 #
 #   Main Figure:        LR comparison for matched vs. mismatched population
 #                       frequencies across loci panels (true positives only)
-#   Supplementary Figure: Delta heatmap of median log10(LR) inflation due to
+#   Supplementary Figure: heatmap of median log10(LR) inflation due to
 #                         population frequency mismatch, across all loci panels
 #   Summary Table:      Detailed population comparison statistics
 #
@@ -71,21 +71,21 @@ MATCH_COLORS <- c(
 )
 
 # Publication theme
-theme_publication <- function(base_size = 11) {
+theme_publication <- function(base_size = 14) {
   theme_bw(base_size = base_size) +
     theme(
       # Text
-      plot.title    = element_text(face = "bold", size = rel(1.2), hjust = 0.5),
+      plot.title    = element_text(size = rel(1.2), hjust = 0.5),
       plot.subtitle = element_text(size = rel(1), hjust = 0.5, color = "gray30"),
-      axis.title    = element_text(face = "bold", size = rel(1)),
+      axis.title    = element_text( size = rel(1)),
       axis.text     = element_text(size = rel(0.9)),
 
       # Facets
       strip.background = element_rect(fill = "gray90", color = "gray60"),
-      strip.text       = element_text(face = "bold", size = rel(0.9)),
+      strip.text       = element_text(size = rel(0.8)),
 
       # Legend
-      legend.title    = element_text(face = "bold", size = rel(1)),
+      legend.title    = element_text(size = rel(1)),
       legend.text     = element_text(size = rel(0.9)),
       legend.position = "bottom",
       legend.box      = "horizontal",
@@ -195,6 +195,8 @@ all_combined <- all_combined %>%
     pop_match       = tested_population == population,
     pop_match_label = if_else(pop_match, "Matched", "Mismatched"),
 
+    log10_LR = suppressWarnings(log10(combined_LR)),
+    
     # Relationship match indicator
     rel_match = as.character(known_relationship) == as.character(tested_relationship)
   ) %>%
@@ -233,12 +235,9 @@ fig_pop_data <- all_combined %>%
   summarize(
     # Median is robust to zero LRs (legitimate parent-child exclusions)
     # log10(0) = -Inf; median handles this correctly since <50% per group are zero
-    median_log10_LR = median(suppressWarnings(log10(combined_LR)), na.rm = TRUE),
-    # Mean and SE computed on non-zero pairs only — retained for summary CSV
-    mean_log10_LR   = mean(suppressWarnings(log10(combined_LR[combined_LR > 0])),
-                           na.rm = TRUE),
-    se_log10_LR     = sd(suppressWarnings(log10(combined_LR[combined_LR > 0])),
-                         na.rm = TRUE) / sqrt(sum(combined_LR > 0)),
+    median_log10_LR = median(log10_LR, na.rm = TRUE),
+    mean_log10_LR   = mean(log10_LR[is.finite(log10_LR)], na.rm = TRUE),
+    se_log10_LR     = sd(log10_LR[is.finite(log10_LR)], na.rm = TRUE) / sqrt(sum(combined_LR > 0)),
     n_pairs         = n(),
     n_zero          = sum(combined_LR == 0),
     .groups = "drop"
@@ -296,62 +295,92 @@ ggsave(
 log_message(sprintf("Main figure saved: %s", fig_pop_filename))
 
 # ==============================================================================
-# SUPPLEMENTARY FIGURE: Population Mismatch Delta Heatmap
-# Shows delta in median log10(LR) between mismatched and matched population
-# frequencies for all pairwise population combinations, across all loci panels
-# (rows) and relationship types (columns).
-# Diagonal = 0 by definition (matched - matched).
-# Positive delta = mismatch inflates LR relative to correct frequencies.
-# Includes "all" pooled population as reference.
+# SUPPLEMENTARY FIGURE: Population Mismatch Percent Change Heatmap
+# Shows % change in LR when using wrong vs. correct population frequencies,
+# computed per pair as log10(LR_wrong / LR_correct), then summarized as
+# median across pairs. Diagonal is computed empirically (should be ~0%).
 # ==============================================================================
 
-log_message("Generating Supplementary Figure: Population Mismatch Delta Heatmap...")
+log_message("Generating Supplementary Figure: Population Mismatch Heatmap...")
 
 # Compute median log10(LR) per population x tested_population x relationship x loci cell
 # Zeros are included: log10(0) = -Inf, median handles correctly since <50% per group are zero
-figS_raw <- all_combined %>%
-  filter(
-    rel_match == TRUE,
-    known_relationship %in% c("Parent-Child", "Full Siblings")
-  ) %>%
+correct_lrs <- all_combined %>%
+  filter(pop_match == TRUE, rel_match == TRUE,
+         known_relationship %in% c("Parent-Child", "Full Siblings")) %>%
+  select(batch_id, pair_id, population, known_relationship,
+         loci_set, tested_relationship,
+         correct_log10_LR = log10_LR)
+
+wrong_lrs <- all_combined %>%
+  filter(pop_match == FALSE, rel_match == TRUE,
+         known_relationship %in% c("Parent-Child", "Full Siblings")) %>%
+  select(batch_id, pair_id, population, known_relationship,
+         loci_set, tested_relationship, tested_population,
+         wrong_log10_LR = log10_LR)
+
+figS_data <- wrong_lrs %>%
+  left_join(correct_lrs,
+            by = c("batch_id", "pair_id", "population",
+                   "known_relationship", "loci_set", "tested_relationship")) %>%
+  mutate(log10_ratio = wrong_log10_LR - correct_log10_LR) %>%
   group_by(population, tested_population, known_relationship, loci_set) %>%
   summarize(
-    median_log10_LR = median(suppressWarnings(log10(combined_LR)), na.rm = TRUE),
-    n_pairs         = n(),
+    median_log10_ratio = median(log10_ratio, na.rm = TRUE),
+    n_pairs            = n(),
     .groups = "drop"
   ) %>%
-  # Ensure "all" appears last on both axes
   mutate(
     tested_population = factor(tested_population,
                                levels = c("AfAm", "Asian", "Cauc", "Hispanic", "all")),
     population        = factor(population,
-                               levels = c("AfAm", "Asian", "Cauc", "Hispanic", "all"))
+                               levels = c("AfAm", "Asian", "Cauc", "Hispanic", "all")),
+    text_color = if_else(median_log10_ratio > 1.5, "white", "black"),
+    is_diagonal = FALSE  # all rows here are off-diagonal by construction; diagonal added below
   )
 
-# Extract matched (diagonal) median for each population x relationship x loci_set
-matched_vals <- figS_raw %>%
-  filter(population == tested_population) %>%
-  select(population, known_relationship, loci_set,
-         matched_median = median_log10_LR)
-
-# Compute delta: mismatched median - matched median
-# Diagonal will be 0 by definition
-figS_data <- figS_raw %>%
-  left_join(matched_vals,
-            by = c("population", "known_relationship", "loci_set")) %>%
+diagonal_rows <- all_combined %>%
+  filter(pop_match == TRUE, rel_match == TRUE,
+         known_relationship %in% c("Parent-Child", "Full Siblings")) %>%
+  select(batch_id, pair_id, population, known_relationship,
+         loci_set, tested_relationship, tested_population,
+         log10_LR) %>%
+  left_join(
+    all_combined %>%
+      filter(pop_match == TRUE, rel_match == TRUE,
+             known_relationship %in% c("Parent-Child", "Full Siblings")) %>%
+      select(batch_id, pair_id, population, known_relationship,
+             loci_set, tested_relationship,
+             correct_log10_LR = log10_LR),
+    by = c("batch_id", "pair_id", "population",
+           "known_relationship", "loci_set", "tested_relationship")
+  ) %>%
+  mutate(log10_ratio = log10_LR - correct_log10_LR) %>%
+  group_by(population, tested_population, known_relationship, loci_set) %>%
+  summarize(
+    median_log10_ratio = median(log10_ratio, na.rm = TRUE),
+    n_pairs            = n(),
+    .groups = "drop"
+  ) %>%
   mutate(
-    delta           = median_log10_LR - matched_median,
-    is_diagonal     = population == tested_population
-  )
+    tested_population = factor(tested_population,
+                               levels = c("AfAm", "Asian", "Cauc", "Hispanic", "all")),
+    population        = factor(population,
+                               levels = c("AfAm", "Asian", "Cauc", "Hispanic", "all")),
+    text_color  = "black",
+    is_diagonal = TRUE
+    )
+
+figS_data <- bind_rows(figS_data, diagonal_rows)
 
 figS_pop <- ggplot(figS_data,
                    aes(x = tested_population, y = population,
-                       fill = delta)) +
+                       fill = median_log10_ratio)) +
 
   geom_tile(color = "white", linewidth = 1) +
 
-  geom_text(aes(label = sprintf("%+.1f", delta)),
-            color = "black", size = 2.8, fontface = "bold") +
+  geom_text(aes(label = sprintf("%+.2f", median_log10_ratio)),
+                color = figS_data$text_color, size = 3.8) +
 
   # Highlight diagonal (delta = 0)
   geom_tile(data = filter(figS_data, is_diagonal),
@@ -360,16 +389,22 @@ figS_pop <- ggplot(figS_data,
   # Rows = loci panels, columns = relationship type
   facet_grid(loci_set ~ known_relationship) +
 
-  scale_fill_gradient(
-    low    = "white",
-    high   = "#2166ac",   # Blue = higher inflation
-    name   = "\u0394 Median\nlog\u2081\u2080(LR)\n(Mismatch \u2212 Matched)",
-    breaks = pretty_breaks(n = 5)
+  # scale_fill_gradientn(
+  #   colors = c("white", "#c6dbef", "#6baed6", "#2166ac", "#08306b"),
+  #   trans  = "log1p",   # log1p handles 0 gracefully
+  #   name   = "Median\nlog\u2081\u2080(LR_wrong /\nLR_correct)"
+  # ) +
+  
+  scale_fill_gradientn(
+    colors = c("white", "#c6dbef", "#6baed6", "#2166ac", "#08306b"),
+    limits = c(0, 3),
+    oob    = scales::squish,   # values above 3 get capped to darkest color
+    name = "Median\nlog\u2081\u2080(LR_wrong /\nLR_correct)\n(capped at 3)"
   ) +
 
   labs(
     title    = "Population Frequency Mismatch: LR Inflation Relative to Matched Frequencies",
-    subtitle = "Delta = median log\u2081\u2080(LR) using wrong frequencies \u2212 median log\u2081\u2080(LR) using correct frequencies\nGold borders = correct population match (delta = 0)",
+    subtitle = "Each cell = median log\u2081\u2080(LR_wrong / LR_correct) across all pairs\n+1 = wrong frequencies give 10\u00d7 higher LR | 0 = no effect (gold border)",
     x        = "Tested Population Frequencies",
     y        = "True Population"
   ) +
@@ -383,7 +418,7 @@ figS_pop <- ggplot(figS_data,
 
   coord_equal()
 
-figS_filename <- "mismatched_population_supp_delta_heatmap.png"
+figS_filename <- "mismatched_population_supp_heatmap.png"
 ggsave(
   filename = file.path(output_dir, figS_filename),
   plot     = figS_pop,
