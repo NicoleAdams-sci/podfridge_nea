@@ -20,14 +20,19 @@
 #     thresholds, stratified by population and tested hypothesis.
 #     Output: cutoff_supp_heatmap_fp_rates.png
 #
-# Input:  proportions_with_classification.csv (output of plots_proportion_exceeding_cutoffs.R)
+# Input:  <input_dir>/proportions_with_classification.csv
+#         (produced by prepare_combined_lr_intermediates.R)
 #
 # Usage:
-#   Rscript plots_cutoffs_publication.R <input_dir> [output_dir]
+#   Rscript code/plots_cutoffs_publication.R <input_dir> [output_dir]
+#
+#   input_dir   Full path to data directory (e.g., output/lr_analysis_20260130)
+#   output_dir  Where to write figures (default: <input_dir>/plots_cutoffs)
 # =============================================================================
 
 suppressMessages(suppressWarnings({
   library(tidyverse)
+  library(data.table)
   library(scales)
   library(patchwork)
 }))
@@ -36,10 +41,10 @@ log_message <- function(msg) cat(paste0("[", Sys.time(), "] ", msg, "\n"))
 
 # --- Argument parsing ---
 args <- commandArgs(trailingOnly = TRUE)
-if (length(args) < 1) stop("Usage: Rscript plots_manuscript_figures.R <input_dir> [output_dir]")
+if (length(args) < 1) stop("Usage: Rscript code/plots_cutoffs_publication.R <input_dir> [output_dir]")
 
 input_dir  <- args[1]
-output_dir <- if (length(args) >= 2) file.path("output", args[2]) else file.path("output", input_dir)
+output_dir <- if (length(args) >= 2) args[2] else file.path(input_dir, "plots_cutoffs")
 dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)
 
 log_message(paste("Input directory: ", input_dir))
@@ -140,24 +145,28 @@ theme_publication <- function(base_size = 14) {
 
 
 # =============================================================================
-# SECTION 2: LOAD AND PREPARE DATA
+# SECTION 2: LOAD DATA
 # =============================================================================
 
 log_message("Loading proportions data...")
 
-proportions_all <- read_csv(
-  file.path(input_dir, "plots_exceeding_cutoffs/proportions_with_classification.csv"),
-  show_col_types = FALSE
-) %>%
+proportions_file <- file.path(input_dir, "proportions_with_classification.csv")
+
+if (!file.exists(proportions_file)) {
+  stop(sprintf(
+    "Intermediate file not found: %s\nRun prepare_combined_lr_intermediates.R first.",
+    proportions_file
+  ))
+}
+
+proportions_all <- fread(proportions_file) %>%
   mutate(
     known_relationship  = factor(known_relationship,  levels = relationship_order),
     tested_relationship = factor(tested_relationship, levels = relationship_order),
     loci_set            = factor(loci_set,            levels = loci_set_order),
     population          = factor(population,          levels = population_order),
-    classification      = factor(
-      classification,
-      levels = c("True Positive", "Related FP", "Unrelated FP")
-    )
+    classification      = factor(classification,
+                                 levels = c("True Positive", "Related FP", "Unrelated FP"))
   )
 
 log_message(paste("Loaded", nrow(proportions_all), "rows."))
@@ -336,14 +345,16 @@ fig3_data <- proportions_all %>%
   # summarise(mean_proportion = mean(proportion, na.rm = TRUE), .groups = "drop")
 
 make_heatmap <- function(data, hypothesis, panel_title) {
-  ggplot(data %>% filter(tested_relationship == hypothesis),
-         aes(x = loci_set, y = known_relationship, fill = proportion)
-  ) +
+  panel_data <- data %>% filter(tested_relationship == hypothesis)
+  # Relative threshold for white text: top 45% of this panel's own scale
+  color_threshold <- max(panel_data$proportion, na.rm = TRUE) * 0.55
+
+  ggplot(panel_data, aes(x = loci_set, y = known_relationship, fill = proportion)) +
     geom_tile(color = "white", linewidth = 0.4) +
     geom_text(
       aes(
         label = percent(proportion, accuracy = 0.001),
-        color = proportion > 0.55
+        color = proportion > color_threshold
       ),
       size = 2.8
     ) +
@@ -357,17 +368,19 @@ make_heatmap <- function(data, hypothesis, panel_title) {
     scale_fill_distiller(
       palette   = "YlOrRd",
       direction = 1,
-      limits    = c(0, 1),
       labels    = percent_format(accuracy = 0.001),
       name      = "False positive rate"
     ) +
     scale_x_discrete(labels = loci_set_labels) +
     scale_y_discrete(labels = relationship_labels) +
     labs(x = "Loci Panel", y = "True Relationship", title = panel_title) +
-    theme_publication(base_size = 12) +
+    theme_publication(base_size = 14) +
     theme(
-      panel.grid.major = element_blank(),
-      axis.text.x      = element_text(angle = 30, hjust = 1)
+      panel.grid.major  = element_blank(),
+      axis.text.x       = element_text(angle = 30, hjust = 1),
+      legend.text       = element_text(angle = 45, hjust = 1),
+      legend.key.width  = unit(1.5, "cm"),
+      legend.title.position = "top"
     )
 }
 
@@ -376,17 +389,16 @@ fig3a <- make_heatmap(fig3_data, "parent_child", "Parent-Child Test")
 fig3b <- make_heatmap(fig3_data, "full_siblings", "Full Siblings Test")
 
 figure3 <- (fig3a / fig3b) +
-  plot_layout(guides = "collect") +
   plot_annotation(
     title      = "False Positive Rates Across Loci Panels and LR Thresholds",
     tag_levels = "A"
   ) &
-  theme(legend.position = "bottom")   # the & applies to all panels including collected legend
+  theme(legend.position = "bottom")
 
 ggsave(
   filename = file.path(output_dir, "cutoff_supp_heatmap_fp_rates.png"),
   plot     = figure3,
-  width    = 16,
+  width    = 22,
   height   = 20,
   dpi      = 300,
   bg       = "white"
