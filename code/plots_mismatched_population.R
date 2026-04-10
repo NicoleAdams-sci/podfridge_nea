@@ -11,6 +11,16 @@
 #                         population frequency mismatch, across all loci panels
 #   Summary Table:      Detailed population comparison statistics
 #
+# Input:  <input_dir>/mismatched_pop_robustness.csv
+#         <input_dir>/mismatched_pop_heatmap.csv
+#         (produced by prepare_combined_lr_intermediates.R)
+#
+# Usage:
+#   Rscript code/plots_mismatched_population.R <input_dir> [output_dir]
+#
+#   input_dir   Full path to data directory (e.g., output/lr_analysis_20260130)
+#   output_dir  Where to write figures (default: <input_dir>/plots_mismatched_population)
+#
 # Date: 2026-03-06
 ################################################################################
 
@@ -37,11 +47,11 @@ log_message <- function(message) {
 args <- commandArgs(trailingOnly = TRUE)
 
 if (length(args) < 1) {
-  stop("Usage: Rscript plots_mismatched_population.R <input_dir> [output_dir]")
+  stop("Usage: Rscript code/plots_mismatched_population.R <input_dir> [output_dir]")
 }
 
-input_dir <- args[1]
-output_dir <- if (length(args) >= 2) args[2] else file.path(input_dir, "publication_figures")
+input_dir  <- args[1]
+output_dir <- if (length(args) >= 2) args[2] else file.path(input_dir, "plots_mismatched_population")
 
 log_message(sprintf("Input directory: %s", input_dir))
 log_message(sprintf("Output directory: %s", output_dir))
@@ -100,158 +110,54 @@ theme_publication <- function(base_size = 14) {
 }
 
 # ==============================================================================
-# DATA LOADING AND PREPROCESSING
+# DATA LOADING
 # ==============================================================================
 
-log_message("Loading combined LR data...")
+log_message("Loading intermediate files...")
 
-all_combined_file <- file.path(input_dir, "combined_LR_all.rds")
+robustness_file <- file.path(input_dir, "mismatched_pop_robustness.csv")
+heatmap_file    <- file.path(input_dir, "mismatched_pop_heatmap.csv")
 
-if (!file.exists(all_combined_file)) {
-  stop(sprintf("Data file not found: %s", all_combined_file))
+for (f in c(robustness_file, heatmap_file)) {
+  if (!file.exists(f)) {
+    stop(sprintf(
+      "Intermediate file not found: %s\nRun prepare_combined_lr_intermediates.R first.", f
+    ))
+  }
 }
 
-all_combined <- readRDS(all_combined_file)
-
-log_message(sprintf("Loaded %s rows", format(nrow(all_combined), big.mark = ",")))
-
-# ==============================================================================
-# DIAGNOSTIC: CHECK FOR ZERO / NON-FINITE LRs (PRE-FILTER)
-# Run before filtering so we capture what is being dropped.
-# Results are printed to the SLURM log for post-hoc inspection.
-# ==============================================================================
-
-log_message("Running LR diagnostic checks (pre-filter)...")
-
-all_combined <- all_combined %>%
-  mutate(combined_LR = as.numeric(combined_LR))
-
-n_total_raw  <- nrow(all_combined)
-n_zero_raw   <- sum(all_combined$combined_LR == 0,   na.rm = TRUE)
-n_na_raw     <- sum(is.na(all_combined$combined_LR))
-n_neginf_raw <- sum(!is.finite(log10(suppressWarnings(
-                  all_combined$combined_LR))), na.rm = TRUE)
-
-cat(sprintf("\n--- LR Diagnostic (pre-filter, n = %s) ---\n",
-            format(n_total_raw, big.mark = ",")))
-cat(sprintf("  Zero LRs:              %d (%.4f%%)\n",
-            n_zero_raw,   100 * n_zero_raw   / n_total_raw))
-cat(sprintf("  NA LRs:                %d (%.4f%%)\n",
-            n_na_raw,     100 * n_na_raw     / n_total_raw))
-cat(sprintf("  Non-finite log10(LR):  %d (%.4f%%)\n",
-            n_neginf_raw, 100 * n_neginf_raw / n_total_raw))
-
-# Exclusion rate by population match — key check for whether mismatch
-# drives more exclusions than matched frequencies
-excl_by_match <- all_combined %>%
-  mutate(
-    is_zero_or_na = is.na(combined_LR) | combined_LR == 0,
-    pop_match     = tested_population == population
-  ) %>%
-  group_by(pop_match) %>%
-  summarize(
-    n_total      = n(),
-    n_excluded   = sum(is_zero_or_na),
-    pct_excluded = 100 * sum(is_zero_or_na) / n(),
-    .groups = "drop"
-  )
-
-cat("\n--- Exclusion rate by population match (pre-filter) ---\n")
-print(as.data.frame(excl_by_match))
-cat("\n")
-
-# Break down zero LRs by known vs. tested relationship combination
-# Identifies whether zeros cluster in specific relationship mismatches
-# (e.g., unrelated pairs tested as parent-child where k0 = 0)
-zero_by_relationship <- all_combined %>%
-  filter(combined_LR == 0) %>%
-  count(known_relationship, tested_relationship, name = "n_zeros") %>%
-  arrange(desc(n_zeros)) %>%
-  mutate(pct_of_all_zeros = 100 * n_zeros / n_zero_raw)
-
-cat("--- Zero LR breakdown by known vs. tested relationship (pre-filter) ---\n")
-print(as.data.frame(zero_by_relationship))
-cat("\n")
-
-# ==============================================================================
-# PREPROCESS DATA
-# ==============================================================================
-
-all_combined <- all_combined %>%
+fig_pop_data <- fread(robustness_file) %>%
   mutate(
     known_relationship = factor(known_relationship,
                                 levels = RELATIONSHIP_ORDER,
                                 labels = RELATIONSHIP_LABELS),
-    tested_relationship = factor(tested_relationship,
-                                 levels = RELATIONSHIP_ORDER,
-                                 labels = RELATIONSHIP_LABELS),
-    loci_set   = factor(loci_set,
-                        levels = LOCI_ORDER,
-                        labels = LOCI_LABELS),
-    population = factor(population,
-                        levels = c("AfAm", "Asian", "Cauc", "Hispanic", "all")),
-
-    # Population match indicator
-    pop_match       = tested_population == population,
-    pop_match_label = if_else(pop_match, "Matched", "Mismatched"),
-
-    log10_LR = suppressWarnings(log10(combined_LR)),
-    
-    # Relationship match indicator
-    rel_match = as.character(known_relationship) == as.character(tested_relationship)
-  ) %>%
-  # Keep zeros — legitimate exclusions under parent-child test (k0=0)
-  # Median is robust to these as long as <50% per group are zero
-  filter(!is.na(combined_LR))
-
-log_message(sprintf("After preprocessing: %s rows", format(nrow(all_combined), big.mark = ",")))
-
-# Post-filter diagnostic
-n_total_clean <- nrow(all_combined)
-n_zero_clean  <- sum(all_combined$combined_LR == 0, na.rm = TRUE)
-
-cat(sprintf("\n--- LR Diagnostic (post-filter, n = %s) ---\n",
-            format(n_total_clean, big.mark = ",")))
-cat(sprintf("  Zero LRs retained:     %d (%.4f%%)\n\n",
-            n_zero_clean, 100 * n_zero_clean / n_total_clean))
-
-# ==============================================================================
-# MAIN FIGURE: POPULATION ROBUSTNESS
-# Question: How sensitive is the method to using wrong population frequencies?
-# Approach: Compare LRs for TRUE POSITIVE pairs when using matched vs.
-#           mismatched population frequency tables
-# ==============================================================================
-
-log_message("Generating Main Figure: Population Robustness...")
-
-# Filter to true positives only (relationship correctly tested)
-fig_pop_data <- all_combined %>%
-  filter(
-    rel_match == TRUE,
-    known_relationship %in% c("Parent-Child", "Full Siblings")
-  ) %>%
-  group_by(population, known_relationship, loci_set,
-           pop_match_label, tested_population) %>%
-  summarize(
-    # Median is robust to zero LRs (legitimate parent-child exclusions)
-    # log10(0) = -Inf; median handles this correctly since <50% per group are zero
-    median_log10_LR = median(log10_LR, na.rm = TRUE),
-    mean_log10_LR   = mean(log10_LR[is.finite(log10_LR)], na.rm = TRUE),
-    se_log10_LR     = sd(log10_LR[is.finite(log10_LR)], na.rm = TRUE) / sqrt(sum(combined_LR > 0)),
-    n_pairs         = n(),
-    n_zero          = sum(combined_LR == 0),
-    .groups = "drop"
-  ) %>%
-  mutate(
-    n_loci = case_when(
-      loci_set == "Core 13"        ~ 13,
-      loci_set == "Identifiler 15" ~ 15,
-      loci_set == "Expanded 20"    ~ 20,
-      loci_set == "Supplementary"  ~ 23,
-      loci_set == "Autosomal 29"   ~ 29
-    ),
-    pop_match_label = factor(pop_match_label, levels = c("Matched", "Mismatched"))
+    loci_set           = factor(loci_set,
+                                levels = LOCI_ORDER,
+                                labels = LOCI_LABELS),
+    population         = factor(population,
+                                levels = c("AfAm", "Asian", "Cauc", "Hispanic", "all")),
+    pop_match_label    = factor(pop_match_label, levels = c("Matched", "Mismatched"))
   )
+
+figS_data <- fread(heatmap_file) %>%
+  mutate(
+    known_relationship = factor(known_relationship,
+                                levels = RELATIONSHIP_ORDER,
+                                labels = RELATIONSHIP_LABELS),
+    loci_set           = factor(loci_set,
+                                levels = LOCI_ORDER,
+                                labels = LOCI_LABELS),
+    tested_population  = factor(tested_population,
+                                levels = c("AfAm", "Asian", "Cauc", "Hispanic", "all")),
+    population         = factor(population,
+                                levels = c("AfAm", "Asian", "Cauc", "Hispanic", "all")),
+    text_color         = if_else(median_log10_ratio > 1.5, "white", "black"),
+    # diagonal rows have median_log10_ratio = 0; force text_color to black
+    text_color         = if_else(is_diagonal, "black", text_color)
+  )
+
+log_message(sprintf("Loaded %d rows (robustness), %d rows (heatmap).",
+                    nrow(fig_pop_data), nrow(figS_data)))
 
 fig_pop <- ggplot(fig_pop_data,
                   aes(x = n_loci, y = median_log10_LR,
@@ -302,76 +208,6 @@ log_message(sprintf("Main figure saved: %s", fig_pop_filename))
 # ==============================================================================
 
 log_message("Generating Supplementary Figure: Population Mismatch Heatmap...")
-
-# Compute median log10(LR) per population x tested_population x relationship x loci cell
-# Zeros are included: log10(0) = -Inf, median handles correctly since <50% per group are zero
-correct_lrs <- all_combined %>%
-  filter(pop_match == TRUE, rel_match == TRUE,
-         known_relationship %in% c("Parent-Child", "Full Siblings")) %>%
-  select(batch_id, pair_id, population, known_relationship,
-         loci_set, tested_relationship,
-         correct_log10_LR = log10_LR)
-
-wrong_lrs <- all_combined %>%
-  filter(pop_match == FALSE, rel_match == TRUE,
-         known_relationship %in% c("Parent-Child", "Full Siblings")) %>%
-  select(batch_id, pair_id, population, known_relationship,
-         loci_set, tested_relationship, tested_population,
-         wrong_log10_LR = log10_LR)
-
-figS_data <- wrong_lrs %>%
-  left_join(correct_lrs,
-            by = c("batch_id", "pair_id", "population",
-                   "known_relationship", "loci_set", "tested_relationship")) %>%
-  mutate(log10_ratio = wrong_log10_LR - correct_log10_LR) %>%
-  group_by(population, tested_population, known_relationship, loci_set) %>%
-  summarize(
-    median_log10_ratio = median(log10_ratio, na.rm = TRUE),
-    n_pairs            = n(),
-    .groups = "drop"
-  ) %>%
-  mutate(
-    tested_population = factor(tested_population,
-                               levels = c("AfAm", "Asian", "Cauc", "Hispanic", "all")),
-    population        = factor(population,
-                               levels = c("AfAm", "Asian", "Cauc", "Hispanic", "all")),
-    text_color = if_else(median_log10_ratio > 1.5, "white", "black"),
-    is_diagonal = FALSE  # all rows here are off-diagonal by construction; diagonal added below
-  )
-
-diagonal_rows <- all_combined %>%
-  filter(pop_match == TRUE, rel_match == TRUE,
-         known_relationship %in% c("Parent-Child", "Full Siblings")) %>%
-  select(batch_id, pair_id, population, known_relationship,
-         loci_set, tested_relationship, tested_population,
-         log10_LR) %>%
-  left_join(
-    all_combined %>%
-      filter(pop_match == TRUE, rel_match == TRUE,
-             known_relationship %in% c("Parent-Child", "Full Siblings")) %>%
-      select(batch_id, pair_id, population, known_relationship,
-             loci_set, tested_relationship,
-             correct_log10_LR = log10_LR),
-    by = c("batch_id", "pair_id", "population",
-           "known_relationship", "loci_set", "tested_relationship")
-  ) %>%
-  mutate(log10_ratio = log10_LR - correct_log10_LR) %>%
-  group_by(population, tested_population, known_relationship, loci_set) %>%
-  summarize(
-    median_log10_ratio = median(log10_ratio, na.rm = TRUE),
-    n_pairs            = n(),
-    .groups = "drop"
-  ) %>%
-  mutate(
-    tested_population = factor(tested_population,
-                               levels = c("AfAm", "Asian", "Cauc", "Hispanic", "all")),
-    population        = factor(population,
-                               levels = c("AfAm", "Asian", "Cauc", "Hispanic", "all")),
-    text_color  = "black",
-    is_diagonal = TRUE
-    )
-
-figS_data <- bind_rows(figS_data, diagonal_rows)
 
 figS_pop <- ggplot(figS_data,
                    aes(x = tested_population, y = population,
