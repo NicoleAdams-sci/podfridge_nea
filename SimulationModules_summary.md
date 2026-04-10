@@ -1,6 +1,6 @@
 # PODFRIDGE Simulation Pipeline
 
-**Last Updated**: January 2026  
+**Last Updated**: April 2026  
 **Current Dataset**: 1,000,000 simulated pairs (500,000 related + 500,000 unrelated)
 
 ## Overview
@@ -32,11 +32,14 @@ podfridge_simulations/
 │   ├── combined_lr_submission.sh # Combined LR job submission
 │   ├── analyze_lr_outputs.R     # Analysis aggregation script
 │   ├── analyze_lr_outputs.sh    # SLURM wrapper for analysis
-│   ├── plots_matched.R          # Matched scenario plots
-│   ├── plots_mismatched.R       # Mismatched scenario plots
-│   ├── plots_proportion_exceeding_cutoffs.R  # Threshold analysis
-│   ├── plots_proportion_exceeding_cutoffs.sh # SLURM wrapper
-│   ├── plots_mismatched.sh      # SLURM wrapper for mismatched plots
+│   ├── prepare_combined_lr_intermediates.R  # Intermediate CSV prep (NEW)
+│   ├── prepare_combined_lr_intermediates.sh # SLURM wrapper for above (NEW)
+│   ├── plots_matched_publication.R          # Publication matched plots (NEW)
+│   ├── plots_mismatched_population.R        # Population mismatch plots (NEW)
+│   ├── plots_mismatched_relationship.R      # Relationship discrimination plots (NEW)
+│   ├── plots_cutoffs_publication.R          # Classification/FPR threshold plots (NEW)
+│   ├── run_statistical_tests.R              # All inferential tests (NEW)
+│   ├── run_statistical_tests.sh             # SLURM wrapper for stats (NEW)
 │   ├── simulation_analysis.sh   # SLURM wrapper for R Markdown report
 │   └── run_pipeline_bare.sh     # Manual step-by-step reference (copy/paste each section)
 │
@@ -54,7 +57,9 @@ podfridge_simulations/
 │   ├── unrel_pairs_*.out/err
 │   ├── lr_calc_*.out/err
 │   ├── combined_lr_*.out/err
-│   └── analyze_lr_*.out/err
+│   ├── analyze_lr_*.out/err
+│   ├── prep_intermediates_*.out/err
+│   └── stats_tests_*.out/err
 │
 └── output/                  # Generated data and results
     ├── pairs_*.csv          # Simulated genotype pairs (1000 files)
@@ -64,22 +69,25 @@ podfridge_simulations/
     │   └── combined_LR_*.csv
     └── lr_analysis_*/       # Analysis results and plots
         ├── combined_LR_all.rds              # Complete combined dataset
-        ├── combined_LR_match.csv            # Strictly matched data
+        ├── combined_LR_match.csv.gz         # Strictly matched data (gzip compressed)
         ├── combined_LR_mismatch.csv         # Mismatched data
         ├── combined_LR_summary_stats.csv    # Summary statistics
         ├── combined_LR_ratio_summary.csv    # Ratio statistics
         ├── combined_LR_ratios_raw.csv       # Raw ratio data
-        ├── plots_matched/                   # Correct assumption plots
-        ├── plots_mismatched/                # Incorrect assumption plots
-        ├── plots_exceeding_cutoffs/         # Threshold analysis plots
+        ├── proportions_with_classification.csv  # Intermediate: cutoff/FPR data
+        ├── mismatched_pop_robustness.csv        # Intermediate: pop mismatch lines
+        ├── mismatched_pop_heatmap.csv           # Intermediate: pop mismatch heatmap
+        ├── plots_matched/                   # Publication matched plots
+        ├── plots_mismatched_population/     # Population mismatch plots
+        ├── plots_mismatched_relationship/   # Relationship discrimination plots
+        ├── plots_cutoffs/                   # Classification/FPR threshold plots
+        ├── stats/                           # Statistical test results (NEW)
+        │   ├── stats_matched.csv
+        │   ├── stats_mismatched_population.csv
+        │   └── stats_fpr_cutoffs.csv
         └── analysis_results/                # R Markdown report outputs
-            ├── simulation_analysis_*.html   # Statistical report
-            ├── classification_summary_29loci.png
-            ├── proportions_with_classification.csv
-            ├── detailed_rates_29loci.csv
-            ├── stat_test_loci_effect.csv
-            ├── stat_test_population_effect.csv
-            └── stat_test_linear_trend.csv
+            ├── simulation_analysis_*.html
+            └── ...
 ```
 
 ## Module Architecture & Dependencies
@@ -272,10 +280,6 @@ Post-Processing:
      - Creates `output/lr_file_list.txt`
      - Updates lr_wrapper.sh with correct array size
      - Submits SLURM job and reports job ID
-   - Chunk Range Examples:
-     - `bash code/lr_submission.sh` - processes all chunks
-     - `bash code/lr_submission.sh 1..20` - first 20k pairs per combo
-     - `bash code/lr_submission.sh 21..100` - unrelated 80k
 
 #### Combined LR Pipeline
 7. **combined_lr_wrapper.R**: R script for multi-locus LR
@@ -300,11 +304,9 @@ Post-Processing:
      - Supports chunk range filtering (same as lr_submission.sh)
      - Creates `output/combined_lr_file_list.txt`
      - Updates combined_lr.sh with correct array size and file list
-   - Advanced Usage:
-     - `bash code/combined_lr_submission.sh - my_list.txt` - use custom file list
-     - `bash code/combined_lr_submission.sh none my_list.txt` - same as above
 
-#### Analysis & Visualization
+#### Analysis & Intermediate Preparation
+
 10. **analyze_lr_outputs.R**: Aggregates and analyzes all LR results
     - Called by: `analyze_lr_outputs.sh`
     - Dependencies: module 9
@@ -321,7 +323,7 @@ Post-Processing:
         - Ratio statistics (wrong_LR / correct_LR)
     - Output Files:
       - `combined_LR_all.rds` (compressed)
-      - `combined_LR_match.csv` (strict match only)
+      - `combined_LR_match.csv.gz` (gzip compressed strict match data)
       - `combined_LR_mismatch.csv`
       - `combined_LR_summary_stats.csv`
       - `combined_LR_ratio_summary.csv`
@@ -332,99 +334,165 @@ Post-Processing:
     - Resources: 96 GB RAM, 2 hrs
     - Note: High memory requirement due to combining 1000+ files
 
-12. **plots_matched.R**: Visualizes results with correct assumptions
-    - Usage: `Rscript code/plots_matched.R <input_dir> [output_dir]`
-    - Dependencies: tidyverse, data.table, scales
-    - Input: `combined_LR_match.csv` (strict match data)
+12. **prepare_combined_lr_intermediates.R** *(NEW)*: Generates aggregated intermediate CSVs for plotting scripts
+    - Called by: `prepare_combined_lr_intermediates.sh`
+    - Usage: `Rscript code/prepare_combined_lr_intermediates.R <input_dir> [output_dir]`
+    - Purpose: Loads `combined_LR_all.rds` once and writes three small aggregated CSVs, avoiding
+      the need for each plotting script to reload the full dataset independently
     - Features:
-      - Filters for is_correct_pop == TRUE AND known_relationship == tested_relationship
-      - Creates combined PDF: `all_matched_plots.pdf`
-      - Individual plots:
-        - `lr_distributions_boxplot_matched.png`: Log-scale boxplots by relationship
-        - `mean_combined_lr_matched.png`: Line plots showing mean LR trends across loci sets
-        - `proportions_exceeding_cutoffs_matched.png`: Bar plots for threshold performance
-        - `heatmap_proportions_fixed_cutoff_matched.png`: Heatmap visualization
-    - Population colors: AfAm=red, Asian=blue, Cauc=green, Hispanic=purple, all=orange
-
-13. **plots_mismatched.R**: Visualizes population/relationship mismatch effects
-    - Usage: `Rscript code/plots_mismatched.R <input_dir> [output_dir]`
-    - Called by: `plots_mismatched.sh`
-    - Dependencies: tidyverse, data.table, scales
-    - Input: `combined_LR_all.rds` (full dataset)
-    - Features:
-      - Creates relationship mismatch boxplot showing all tested vs. known combinations
-      - Creates population mismatch boxplots for parent-child and full-sibling hypotheses
-      - Generates multi-page PDF: `mismatched_pops_all_relationships_LRboxplots.pdf`
-      - Individual PNG files for each tested relationship × tested population combination
-    - Resources (via SLURM wrapper): 42 GB RAM, 1 hr
-
-14. **plots_proportion_exceeding_cutoffs.R**: Threshold analysis plots
-    - Usage: `Rscript code/plots_proportion_exceeding_cutoffs.R <input_dir> <output_dir>`
-    - Called by: `plots_proportion_exceeding_cutoffs.sh`
-    - Dependencies: tidyverse, data.table, scales, shades
-    - Input: `combined_LR_all.rds`
-    - Features:
-      - Calculates cutoffs from unrelated pairs (is_correct_pop == TRUE)
-      - Generates proportions exceeding analysis for parent-child and full-sibling hypotheses
-      - Includes statistical testing:
-        - Chi-square tests for loci effect (does number of loci matter?)
-        - Chi-square tests for population effect (does ancestry matter?)
-        - Linear trend analysis (how does performance scale with loci?)
-      - Creates classification summary plot (true positives vs. false positives)
-      - Outputs detailed rate tables and key findings summary
-    - Output Files:
-      - `population_mismatch_proportions_analysis.pdf`
-      - `classification_summary_29loci.png`
-      - `combined_LR_cutoffs.csv`
-      - `combined_LR_exceeding_cutoffs.csv`
+      - Section 1 — Pre-filter diagnostics: reports zero LR counts, NA rates, exclusion rates by
+        population match status; output goes to SLURM log for post-hoc inspection
+      - Section 2 — Preprocessing: adds `pop_match`, `pop_match_label`, `rel_match`, `log10_LR` columns
+      - Section 3 — `proportions_with_classification.csv`: empirical FPR cutoffs from unrelated pairs
+        (1%, 0.1%, 0.01%), proportions exceeding each cutoff, and classification labels
+        (True Positive / Related FP / Unrelated FP); convenience columns `prop_LR_gt_1/10/100/1000`
+      - Section 4 — `mismatched_pop_robustness.csv`: true positive pairs (rel_match == TRUE, parent_child
+        and full_siblings only); median and mean log10(LR) per population × tested_population ×
+        relationship × loci_set × pop_match_label cell
+      - Section 5 — `mismatched_pop_heatmap.csv`: pair-level log10(LR_wrong/LR_correct) joined by
+        pair ID; diagonal rows added with log10_ratio = 0 by construction; `is_diagonal` flag retained
+    - Output Files (written to `<output_dir>/`):
       - `proportions_with_classification.csv`
-      - `stat_test_loci_effect.csv`
-      - `stat_test_population_effect.csv`
-      - `stat_test_linear_trend.csv`
-      - `detailed_rates_29loci.csv`
-      - `key_findings_summary.txt`
-    - Resources (via SLURM wrapper): 35 GB RAM, 1 hr
+      - `mismatched_pop_robustness.csv`
+      - `mismatched_pop_heatmap.csv`
 
-15. **plots_mismatched.sh**: SLURM wrapper for mismatched plots
-    - Usage: `sbatch code/plots_mismatched.sh <input_dir> [output_subdir]`
-    - Resources: 42 GB RAM, 1 hr
+13. **prepare_combined_lr_intermediates.sh** *(NEW)*: SLURM wrapper for intermediate preparation
+    - Usage: `sbatch code/prepare_combined_lr_intermediates.sh <input_dir>`
+    - Resources: 48 GB RAM, 1 hr
+    - Validates `combined_LR_all.rds` exists before running
+    - Prints next-step commands on success
 
-16. **plots_proportion_exceeding_cutoffs.sh**: SLURM wrapper for threshold plots
-    - Usage: `sbatch code/plots_proportion_exceeding_cutoffs.sh <input_dir> <output_dir>`
-    - Resources: 35 GB RAM, 1 hr
+#### Publication Plotting Scripts *(ALL NEW / REDESIGNED)*
+
+> **Note**: The previous plotting scripts (`plots_matched.R`, `plots_mismatched.R`,
+> `plots_proportion_exceeding_cutoffs.R`) have been replaced with publication-quality
+> scripts designed for manuscript figures. The new scripts use the
+> **Okabe-Ito colorblind-safe palette** throughout and are typically run interactively
+> (`Rscript`) rather than via SLURM.
+
+**Shared color palettes (Okabe-Ito, consistent across all publication scripts)**:
+- Relationship colors: Parent-Child=#D55E00, Full Siblings=#E69F00, Half Siblings=#56B4E9,
+  Cousins=#009E73, Second Cousins=#CC79A7, Unrelated=#999999
+- Population colors: AfAm=#0072B2, Asian=#009E73, Cauc=#56B4E9, Hispanic=#CC79A7, all=#999999
+
+14. **plots_matched_publication.R** *(replaces plots_matched.R)*: Matched scenario publication figures
+    - Usage: `Rscript code/plots_matched_publication.R <input_dir> [output_dir]`
+    - Input: `combined_LR_match.csv.gz` (reads directly; does not require intermediates step)
+    - Dependencies: tidyverse, data.table, scales, patchwork
+    - Figures:
+      - **Main text figure** (`matched_main_lr_distributions.pdf/.png`): Violin plots of log10(LR)
+        by relationship type across all 5 loci panels; `population = "all"` only; quantile lines +
+        mean diamonds; faceted by loci set (5 columns); 12 × 5 inches
+      - **Supplement figure** (`matched_supp_lr_by_population.pdf/.png`): Grouped boxplots showing
+        all 5 populations per relationship type; faceted by loci set (3 columns); 12 × 10 inches
+    - Descriptive Output: `matched_summary_statistics_for_ms.csv` (mean, median, SD, IQR per
+      relationship × loci set for the "all" population)
+    - Prints console summaries for parent-child and unrelated LRs as a quick sanity check
+
+15. **plots_mismatched_population.R** *(new — replaces part of plots_mismatched.R)*: Population mismatch figures
+    - Usage: `Rscript code/plots_mismatched_population.R <input_dir> [output_dir]`
+    - Input: `mismatched_pop_robustness.csv` + `mismatched_pop_heatmap.csv` (from intermediates step)
+    - Dependencies: tidyverse, data.table, scales, patchwork
+    - Figures:
+      - **Main figure** (`mismatched_population_robustness.png`): Line plots of median log10(LR) vs.
+        number of loci for matched vs. mismatched population frequencies (solid/dashed lines);
+        faceted by true population (rows) × relationship type (columns); 10 × 8 inches
+      - **Supplement figure** (`mismatched_population_supp_heatmap.png`): Tile heatmap of
+        median log10(LR_wrong / LR_correct) for each true × tested population combination;
+        gold border highlights diagonal (no mismatch); color scale capped at 3 (10³× inflation);
+        faceted by loci set (rows) × relationship (columns); 12 × 20 inches
+    - Summary output: `mismatched_population_comparison_detailed.csv`
+
+16. **plots_mismatched_relationship.R** *(new — replaces part of plots_mismatched.R)*: Relationship discrimination figure
+    - Usage: `Rscript code/plots_mismatched_relationship.R <input_dir> [output_dir]`
+    - Input: `combined_LR_all.rds` (loads the full dataset directly)
+    - Dependencies: tidyverse, data.table, scales, patchwork
+    - Figures:
+      - **Main figure** (`mismatched_relationship_discrimination.png`): Boxplots of combined LR by
+        tested relationship hypothesis for true pairs; parent-child and full-sibling hypotheses only;
+        Core 13, Expanded 20, and Autosomal 29 loci panels only; gold shading on panels where
+        tested hypothesis matches true relationship; colored by true population; 12 × 10 inches
+    - Note: This script uses the legacy population color scheme (red/blue/green/purple/orange)
+      rather than the Okabe-Ito scheme; retained because it visualises continuous LR
+      distributions rather than threshold-based summaries
+
+17. **plots_cutoffs_publication.R** *(replaces plots_proportion_exceeding_cutoffs.R)*: Classification performance figures
+    - Usage: `Rscript code/plots_cutoffs_publication.R <input_dir> [output_dir]`
+    - Input: `proportions_with_classification.csv` (from intermediates step)
+    - Dependencies: tidyverse, data.table, scales, patchwork
+    - Figures:
+      - **Figure 1 — Main text** (`cutoff_classification_0.01fpr_29loci.png`): Grouped bar chart of
+        proportion of pairs exceeding the 0.01% FPR threshold at 29 autosomal loci only;
+        faceted by tested hypothesis (rows) × true relationship (columns); colored by population;
+        18 × 10 inches
+      - **Figure 2 — Supplement** (`cutoff_classification_fpr_29loci.png`): Same layout extended
+        across all three FPR thresholds (1%, 0.1%, 0.01%); 6 row facets (2 hypotheses × 3 thresholds);
+        classification (TP / Related FP / Unrelated FP) on x-axis; 18 × 16 inches
+      - **Figure 3 — Supplement** (`cutoff_supp_heatmap_fp_rates.png`): Heatmap of false positive
+        rates across all loci panels and all 4 thresholds (including Fixed LR > 1); stratified by
+        population and tested hypothesis; two-panel layout (A: parent-child, B: full siblings);
+        YlOrRd fill scale; 22 × 20 inches
+
+#### Statistical Tests *(NEW — separated from plotting scripts)*
+
+18. **run_statistical_tests.R** *(NEW)*: All inferential tests for manuscript results section
+    - Usage: `Rscript code/run_statistical_tests.R <input_dir> [output_dir]`
+    - Default output dir: `<input_dir>/stats/`
+    - Dependencies: tidyverse, data.table, rstatix (kruskal_effsize)
+    - Note: With large simulation N, p-values will be near-zero throughout; effect sizes are
+      the informative statistic in all tests
+    - **Section 1 — Matched population** (input: `combined_LR_match.csv.gz`):
+      - Test 1: Kruskal-Wallis + epsilon-squared — does log10(LR) differ by relationship type,
+        per loci set? (`population = "all"` only)
+      - Test 2: Spearman correlation — does log10(LR) increase with loci count,
+        per relationship type? (computed on per-group medians)
+      - Test 3: Kruskal-Wallis + epsilon-squared — does population affect log10(LR) at
+        Autosomal 29? (named populations only, per relationship)
+      - Output: `stats_matched.csv`
+    - **Section 2 — Mismatched population** (input: `combined_LR_all.rds`; filtered to true positives):
+      - Test 4: Paired Wilcoxon signed-rank — does using wrong population frequencies inflate
+        log10(LR)? Per true_population × tested_population × relationship × loci_set cell;
+        effect size = median log10(LR_wrong / LR_correct); +1 = 10× inflation
+      - Test 5: Linear model (ANOVA) — which factors drive LR inflation? Fitted on per-cell
+        medians to avoid pseudoreplication; reports eta-squared per term
+        (true_population, tested_population, loci_set) per relationship
+      - Output: `stats_mismatched_population.csv`
+    - **Section 3 — FPR cutoff analysis** (input: `proportions_with_classification.csv`):
+      - Test 6: Cochran-Armitage trend test — does FPR change monotonically with loci count?
+        Per tested_relationship × population × classification × threshold combination
+      - Test 7: Logistic regression with drop1 LRT — do relationship type, population, and
+        loci set affect FPR? Per tested_relationship × threshold; effect size = deviance explained
+        (term deviance / null deviance)
+      - Output: `stats_fpr_cutoffs.csv`
+    - All three output CSVs use a unified long format with columns:
+      section, test, question, grouping, statistic, df, p_value, effect_size, effect_size_type,
+      magnitude, n, note
+
+19. **run_statistical_tests.sh** *(NEW)*: SLURM wrapper for statistical tests
+    - Usage: `sbatch code/run_statistical_tests.sh <input_dir>`
+    - Resources: 64 GB RAM, 2 hrs
+    - Validates all three required input files before running:
+      `combined_LR_all.rds`, `combined_LR_match.csv.gz`, `proportions_with_classification.csv`
 
 #### Statistical Report Generation
-17. **simulation_analysis.Rmd**: R Markdown report for comprehensive statistical analysis
+20. **simulation_analysis.Rmd**: R Markdown report for descriptive statistical analysis
     - Location: `analysis/simulation_analysis.Rmd`
     - Dependencies: tidyverse, data.table, scales, knitr, kableExtra
     - Input: `combined_LR_all.rds`
-    - Features:
-      - Filters to parent-child and full-sibling tested relationships only
-      - Calculates classification performance (true positives, related FP, unrelated FP)
-      - Statistical hypothesis testing:
-        - Chi-square tests for loci effect by population and relationship
-        - Chi-square tests for population effect at 29 loci
-        - Linear trend analysis showing slope/R²/significance
+    - Note: Inferential tests have been moved to `run_statistical_tests.R`; this script
+      now focuses on descriptive summaries, classification tables, and visualizations
     - Generates: HTML report with interactive tables and plots
 
-18. **simulation_analysis.sh**: SLURM submission script for report generation
+21. **simulation_analysis.sh**: SLURM submission script for report generation
     - Usage: `sbatch code/simulation_analysis.sh <input_dir> [output_dir]`
     - Resources: 21 GB RAM, 30 min
-    - Features:
-      - Automatically adds date to output filename
-      - Renders R Markdown to HTML
-      - Saves to `output/<output_dir>/analysis_results/`
     - Output: `simulation_analysis_YYYYMMDD.html`
 
 #### Pipeline Management Script
-19. **run_pipeline_bare.sh**: Manual step-by-step command reference
+22. **run_pipeline_bare.sh**: Manual step-by-step command reference
     - Usage: **Do NOT run as a script** - copy/paste each section manually
-    - Features:
-      - Lists all pipeline commands in order
-      - Includes verification commands for each step
-      - Minimal comments - just the essential commands
-      - Designed for interactive execution
-    - Best for: Learning the pipeline, troubleshooting individual steps, manual control
+    - Includes verification commands for each step
+    - Designed for interactive execution
 
 ## Workflow
 
@@ -444,139 +512,120 @@ sbatch code/sim_pairs_unrelated.sh
 - Total: 500,000 related + 100,000 unrelated (from sim_pairs) + 400,000 unrelated = 1,000,000 pairs
 - Output: 1000 files in `output/pairs_*.csv`
 
-**File Naming**:
-- `pairs_{population}_{relationship}_n1000_chunk{01-20}_{YYYYMMDD}.csv` (related)
-- `pairs_{population}_unrelated_n1000_chunk{21-100}_{YYYYMMDD}.csv` (unrelated)
-
 **Computational Cost**:
 - Time: ~3 minutes per chunk
 - Memory: ~170 MB per task
-- Total: ~50 CPU-hours for all simulations
 
 #### Step 2: Calculate Single-Locus LRs
 ```bash
-# Process all chunks (default)
 bash code/lr_submission.sh
-
-# Or process specific chunk ranges:
-# bash code/lr_submission.sh 1..20     # Related pairs only
-# bash code/lr_submission.sh 21..100  # Unrelated pairs only
 ```
-**Process**:
-- Tests each pair against 6 relationship hypotheses × 5 population hypotheses = 30 LR calculations per locus
-- Each pair has 29 loci
-- Per file: 1,000 pairs × 29 loci × 30 tests = 870,000 LR values
-
-**Results**:
-- Output: 1000 files in `output/LR/LR_*.csv`
-- Each file: ~870,000 rows
+**Process**: Tests each pair against 6 relationship hypotheses × 5 population hypotheses = 30 LR calculations per locus; 29 loci per pair = 870,000 LR values per file.
 
 **Computational Cost**:
-- Time: ~1 hour per file (longest: 73 minutes)
+- Time: ~1 hour per file
 - Memory: ~560 MB per task
-- Total: ~1000 CPU-hours for all LR calculations
 
 #### Step 3: Calculate Combined LRs
 ```bash
-# Process all chunks (default)
 bash code/combined_lr_submission.sh
-
-# Or process specific chunk ranges:
-# bash code/combined_lr_submission.sh 1..20
 ```
-**Process**:
-- Multiplies single-locus LRs across 5 loci sets
-- Per file: 1,000 pairs × 5 loci sets × 6 tested relationships × 5 tested populations = 150,000 combined LR values
-
-**Results**:
-- Output: 1000 files in `output/combined_LR/combined_LR_*.csv`
-- Each file: ~150,000 rows
+**Process**: Multiplies single-locus LRs across 5 loci sets; 150,000 combined LR values per file.
 
 **Computational Cost**:
 - Time: ~5 seconds per file
 - Memory: ~530 MB per task
-- Total: ~1.5 CPU-hours for all combined LR calculations
 
 #### Step 4: Analyze Results
 ```bash
 sbatch code/analyze_lr_outputs.sh output/lr_analysis_YYYYMMDD
 ```
-**Process**:
-- Reads all 1000 combined_LR files
-- Aggregates into single dataset (~150 million rows total)
-- Filters and processes:
-  - Strict match (pop AND relationship correct): for LR distribution plots
-  - Population match only: for summary statistics
-  - All data: for ratio analysis
-- Applies statistical functions from module 9
+**Process**: Reads all 1000 combined_LR files; aggregates into single dataset (~150 million rows); 
+filters to strict match and mismatch subsets; applies module 9 statistical functions.
 
-**Results**:
-- Output directory: `output/lr_analysis_YYYYMMDD/`
-- Files created:
-  - `combined_LR_all.rds` (~GB compressed)
-  - `combined_LR_match.csv` (strict matches only)
-  - `combined_LR_mismatch.csv` (mismatches only)
-  - `combined_LR_summary_stats.csv`
-  - `combined_LR_ratio_summary.csv`
-  - `combined_LR_ratios_raw.csv`
+**Output Files**:
+- `combined_LR_all.rds` (~GB compressed)
+- `combined_LR_match.csv.gz` (gzip compressed strict matches)
+- `combined_LR_mismatch.csv`
+- `combined_LR_summary_stats.csv`
+- `combined_LR_ratio_summary.csv`
+- `combined_LR_ratios_raw.csv`
 
-**Computational Cost**:
-- Time: ~20 minutes
-- Memory: 96 GB (due to large dataset)
-- Requires high-memory node
+**Computational Cost**: ~20 minutes, 96 GB RAM (high-memory node required)
 
-#### Step 5: Generate Plots
+#### Step 4.5: Prepare Intermediate Files *(NEW STEP)*
 ```bash
-# Matched scenarios (correct population AND relationship)
-Rscript code/plots_matched.R output/lr_analysis_YYYYMMDD lr_analysis_YYYYMMDD/plots_matched
+sbatch code/prepare_combined_lr_intermediates.sh output/lr_analysis_YYYYMMDD
+```
+**Purpose**: Loads `combined_LR_all.rds` once and pre-aggregates three small CSVs consumed by the
+downstream publication plotting scripts. Running this step avoids each plotting script having to
+independently reload the full dataset.
 
-# Mismatched scenarios (incorrect population or relationship)
-sbatch code/plots_mismatched.sh output/lr_analysis_YYYYMMDD lr_analysis_YYYYMMDD/plots_mismatched
+**Output Files** (written alongside other analysis outputs):
+- `proportions_with_classification.csv` → consumed by `plots_cutoffs_publication.R`
+- `mismatched_pop_robustness.csv` → consumed by `plots_mismatched_population.R`
+- `mismatched_pop_heatmap.csv` → consumed by `plots_mismatched_population.R`
 
-# Threshold analysis (proportion exceeding cutoffs)
-sbatch code/plots_proportion_exceeding_cutoffs.sh lr_analysis_YYYYMMDD lr_analysis_YYYYMMDD/plots_exceeding_cutoffs
+**Computational Cost**: ~10 minutes, 48 GB RAM
+
+#### Step 5: Generate Publication Plots
+```bash
+# Matched scenarios — run interactively
+Rscript code/plots_matched_publication.R output/lr_analysis_YYYYMMDD \
+    output/lr_analysis_YYYYMMDD/plots_matched
+
+# Population mismatch — run interactively
+Rscript code/plots_mismatched_population.R output/lr_analysis_YYYYMMDD \
+    output/lr_analysis_YYYYMMDD/plots_mismatched_population
+
+# Relationship discrimination — run interactively (loads full .rds)
+Rscript code/plots_mismatched_relationship.R output/lr_analysis_YYYYMMDD \
+    output/lr_analysis_YYYYMMDD/plots_mismatched_relationship
+
+# FPR/classification threshold plots — run interactively
+Rscript code/plots_cutoffs_publication.R output/lr_analysis_YYYYMMDD \
+    output/lr_analysis_YYYYMMDD/plots_cutoffs
 ```
 
-**Matched Plots** (correct assumptions):
-- `all_matched_plots.pdf` (combined)
-- `lr_distributions_boxplot_matched.png`
-- `mean_combined_lr_matched.png`
-- `proportions_exceeding_cutoffs_matched.png`
-- `heatmap_proportions_fixed_cutoff_matched.png`
+**Matched Plots** (`plots_matched/`):
+- `matched_main_lr_distributions.pdf/.png` (violin, all populations combined)
+- `matched_supp_lr_by_population.pdf/.png` (boxplot, per population)
+- `matched_summary_statistics_for_ms.csv`
 
-**Mismatched Plots** (incorrect assumptions):
-- `mismatched_pops_all_relationships_LRboxplots.pdf`
-- `relationship_mismatch_LRboxplot.png`
-- Individual PNGs for each tested relationship × population
+**Population Mismatch Plots** (`plots_mismatched_population/`):
+- `mismatched_population_robustness.png` (line plots, matched vs. mismatched freq)
+- `mismatched_population_supp_heatmap.png` (heatmap of LR inflation)
+- `mismatched_population_comparison_detailed.csv`
 
-**Threshold Analysis Plots**:
-- `population_mismatch_proportions_analysis.pdf`
-- `classification_summary_29loci.png`
-- Statistical test CSV files
-- Key findings summary
+**Relationship Discrimination Plots** (`plots_mismatched_relationship/`):
+- `mismatched_relationship_discrimination.png` (boxplots across hypothesis tests)
 
-**Computational Cost**:
-- plots_matched: ~5 minutes, ~10 GB RAM
-- plots_mismatched: ~5 minutes, 42 GB RAM
-- plots_proportion_exceeding_cutoffs: ~2 minutes, 35 GB RAM
+**Classification/FPR Plots** (`plots_cutoffs/`):
+- `cutoff_classification_0.01fpr_29loci.png` (main text, single threshold)
+- `cutoff_classification_fpr_29loci.png` (supplement, all thresholds)
+- `cutoff_supp_heatmap_fp_rates.png` (supplement, FPR heatmap)
 
-#### Step 6: Generate Statistical Report
+#### Step 6: Run Statistical Tests *(NEW STEP)*
+```bash
+sbatch code/run_statistical_tests.sh output/lr_analysis_YYYYMMDD
+```
+**Process**: Runs 7 inferential tests across 3 sections; writes unified long-format result tables.
+Effect sizes are the primary reported statistic given the large simulation N.
+
+**Output** (`output/lr_analysis_YYYYMMDD/stats/`):
+- `stats_matched.csv` (Tests 1–3: KW, Spearman)
+- `stats_mismatched_population.csv` (Tests 4–5: Wilcoxon, linear model)
+- `stats_fpr_cutoffs.csv` (Tests 6–7: Cochran-Armitage, logistic regression)
+
+**Computational Cost**: ~30–60 minutes, 64 GB RAM (Section 2 loads full .rds)
+
+#### Step 7: Generate Statistical Report (Optional)
 ```bash
 sbatch code/simulation_analysis.sh lr_analysis_YYYYMMDD
 ```
-**Process**:
-- Renders R Markdown report with comprehensive statistical analysis
-- Performs chi-square tests and trend analysis
-- Generates classification tables and visualizations
+**Output**: `simulation_analysis_YYYYMMDD.html` — interactive descriptive report
 
-**Results**:
-- `simulation_analysis_YYYYMMDD.html` (interactive report)
-- CSV files with statistical test results
-- Classification performance plots
-
-**Computational Cost**:
-- Time: ~7 minutes
-- Memory: ~17 GB RAM
+**Computational Cost**: ~7 minutes, ~17 GB RAM
 
 ### Alternative Workflows
 
@@ -586,14 +635,6 @@ sbatch code/simulation_analysis.sh lr_analysis_YYYYMMDD
 # DO NOT RUN AS: bash code/run_pipeline_bare.sh
 # Instead, open the file and copy/paste each section one at a time:
 cat code/run_pipeline_bare.sh
-
-# Copy and paste each section, wait for completion before next section
-# Example:
-sbatch code/sim_pairs.sh
-sbatch code/sim_pairs_unrelated.sh
-# Wait: squeue -u $USER shows no jobs
-# Verify: ls output/pairs_*.csv | wc -l
-# Then proceed to next section...
 ```
 
 #### Testing with Small Dataset
@@ -607,27 +648,19 @@ bash code/combined_lr_submission.sh 1..3
 
 # Analyze
 sbatch code/analyze_lr_outputs.sh output/lr_analysis_test
-```
 
-#### Incremental Updates
-```bash
-# Add more unrelated pairs (additional 500 per chunk)
-sbatch code/sim_pairs_unrelated.sh 500
+# Prepare intermediates
+sbatch code/prepare_combined_lr_intermediates.sh output/lr_analysis_test
 
-# Process only the new chunks
-bash code/lr_submission.sh 101..150
-bash code/combined_lr_submission.sh 101..150
-
-# Re-run analysis with all data
-sbatch code/analyze_lr_outputs.sh output/lr_analysis_updated
+# Plots and stats
+Rscript code/plots_matched_publication.R output/lr_analysis_test
+sbatch code/run_statistical_tests.sh output/lr_analysis_test
 ```
 
 ## Output Files
 
 ### Simulation Output
 **Filename Pattern**: `pairs_{population}_{relationship}_n{count}_chunk{num}_{date}.csv`
-
-**Example**: `pairs_AfAm_full_siblings_n1000_chunk05_20251219.csv`
 
 **Columns**:
 - `batch_id`: Timestamp when chunk was created (YYYYMMDD_HHMMSS)
@@ -638,90 +671,43 @@ sbatch code/analyze_lr_outputs.sh output/lr_analysis_updated
 - `focal_A1`, `focal_A2`: Focal individual's alleles
 - `ind2_A1`, `ind2_A2`: Related individual's alleles
 
-**Size**: ~1.8 MB per 1000-pair file (29,001 rows including header)
-
-### LR Output
-**Filename Pattern**: `LR_{population}_{relationship}_n{count}_chunk{num}_{date}.csv`
-
-**Example**: `LR_AfAm_full_siblings_n1000_chunk05_20251219.csv`
-
-**Columns**:
-- All columns from pairs file, plus:
-- `shared_alleles`: Number of IBD alleles (0, 1, or 2)
-- `genotype_match`: Genotype pattern (e.g., "AA-AB", "AB-AB")
-- `tested_relationship`: Hypothesis being tested
-- `tested_population`: Allele frequencies used
-- `LR`: Single-locus likelihood ratio
-
-**Size**: ~50 MB per file (870,000 rows)
+**Size**: ~1.8 MB per 1000-pair file
 
 ### Combined LR Output
-**Filename Pattern**: `combined_LR_{population}_{relationship}_n{count}_chunk{num}_{date}.csv`
-
-**Example**: `combined_LR_AfAm_full_siblings_n1000_chunk05_20251219.csv`
-
 **Columns**:
 - `batch_id`, `pair_id`: Pair identifiers
 - `population`: True population
 - `known_relationship`: True relationship
-- `loci_set`: Marker panel used (core_13, identifiler_15, expanded_20, supplementary, autosomal_29)
+- `loci_set`: Marker panel used
 - `tested_relationship`: Hypothesis being tested
 - `tested_population`: Allele frequencies used
 - `combined_LR`: Product of single-locus LRs
 - `is_correct_rel`: Boolean, known == tested relationship
 - `is_correct_pop`: Boolean, population == tested_population
 
-**Size**: ~8 MB per file (150,000 rows)
-
 ### Analysis Output
 
 **Primary Dataset**:
-- `combined_LR_all.rds`: Complete aggregated dataset (compressed, ~GB size)
-  - All 1000 files combined
-  - ~150 million rows total
+- `combined_LR_all.rds`: Complete aggregated dataset (~150 million rows, compressed)
 
 **Filtered Datasets**:
-- `combined_LR_match.csv`: Strict match (pop AND relationship correct)
-  - Used for: LR distribution plots showing expected performance
-  - Filter: `is_correct_pop == TRUE & known_relationship == tested_relationship`
-  
-- `combined_LR_mismatch.csv`: Any mismatch
-  - Used for: Ratio analysis and mismatch effect plots
-  - Filter: `is_correct_pop == FALSE`
+- `combined_LR_match.csv.gz`: Strict match (pop AND relationship correct) — **now gzip compressed**
+- `combined_LR_mismatch.csv`: Any population mismatch
 
-**Summary Statistics**:
-- `combined_LR_summary_stats.csv`
-  - Groups by: known_relationship, population, loci_set, tested_population, tested_relationship, is_correct_pop
-  - Metrics: n, mean_LR, median_LR, sd_LR, min_LR, max_LR, lower_95, upper_95
+**Intermediate Aggregated Files** *(new)*:
+- `proportions_with_classification.csv`: Proportions of pairs exceeding each LR threshold, with
+  classification labels (True Positive / Related FP / Unrelated FP) and `n_loci` column
+- `mismatched_pop_robustness.csv`: Median/mean log10(LR) per population × relationship × loci cell
+  for matched and mismatched frequency usage
+- `mismatched_pop_heatmap.csv`: Median log10(LR_wrong/LR_correct) per true × tested population cell;
+  includes `is_diagonal` flag
 
-**Ratio Analysis**:
-- `combined_LR_ratio_summary.csv`
-  - Ratio = LR_wrong_pop / LR_correct_pop
-  - Groups by: population, known_relationship, tested_relationship, loci_set, tested_population
-  - Metrics: n, mean_ratio, median_ratio, sd_ratio, min_ratio, max_ratio, lower_95, upper_95
-
-- `combined_LR_ratios_raw.csv`
-  - Individual pair-level ratios (not summarized)
-  - Used for detailed analysis and visualization
-
-### Statistical Report Output
-Generated in `output/lr_analysis_YYYYMMDD/analysis_results/`:
-
-**Main Report**:
-- `simulation_analysis_YYYYMMDD.html`: Interactive HTML report with:
-  - Data summaries and distribution plots
-  - Classification performance analysis
-  - Statistical test results with interpretation
-  - Key findings and conclusions
-
-**Supporting Files**:
-- `classification_summary_29loci.png`: Visual summary of classification performance
-- `proportions_with_classification.csv`: Full proportions data with TP/FP labels
-- `detailed_rates_29loci.csv`: Detailed rates table at maximum loci
-- `stat_test_loci_effect.csv`: Chi-square test results for loci effect
-- `stat_test_population_effect.csv`: Chi-square test results for population effect  
-- `stat_test_linear_trend.csv`: Linear regression results showing trends with loci
-
+**Statistical Test Results** *(new, in `stats/` subdirectory)*:
+- `stats_matched.csv`: KW + Spearman tests (Tests 1–3)
+- `stats_mismatched_population.csv`: Wilcoxon + linear model tests (Tests 4–5)
+- `stats_fpr_cutoffs.csv`: Cochran-Armitage + logistic regression tests (Tests 6–7)
+- Unified long format: section, test, question, grouping, statistic, df, p_value, effect_size,
+  effect_size_type, magnitude, n, note
 
 ## Key Technical Details
 
@@ -729,17 +715,19 @@ Generated in `output/lr_analysis_YYYYMMDD/analysis_results/`:
 - **Global Uniqueness**: Achieved via `(batch_id, pair_id)` combination
   - `batch_id`: Timestamp when chunk was created (unique per simulation run)
   - `pair_id`: Incorporates chunk number (e.g., "c05_042" = chunk 5, pair 42)
+- Required for correct pair-level joining in population mismatch analyses (Steps 4.5, 6)
 
 ### Memory Management
 - **High-memory steps**:
-  - analyze_lr_outputs.R: 96 GB (combines 150M rows)
-  - plots_mismatched: 42 GB
-  - plots_proportion_exceeding_cutoffs: 35 GB
+  - `analyze_lr_outputs.R`: 96 GB (combines 150M rows)
+  - `prepare_combined_lr_intermediates.R`: 48 GB
+  - `run_statistical_tests.R`: 64 GB (loads full .rds for Section 2)
+  - `plots_mismatched_relationship.R`: ~42 GB (loads full .rds)
 
 ### Chunk Range Syntax
 - **Correct**: `1..20` (double dots, compatible with bash brace expansion)
 - **Incorrect**: `1-20` (single dash causes error)
-- **Validation**: Scripts check for incorrect single dash and provide helpful error message
+- Scripts validate for incorrect single dash and provide a helpful error message
 
 ## Computational Resources Summary
 
@@ -748,7 +736,9 @@ Generated in `output/lr_analysis_YYYYMMDD/analysis_results/`:
 - **LR Calculation**: ~1.5 hours, ~400 MB RAM per task
 - **Combined LR**: ~1 minute, ~95 MB RAM per task
 - **Analysis**: ~20 minutes, 96 GB RAM (single task)
-- **Plotting**: ~20 minutes total, 25-36 GB RAM
+- **Prepare Intermediates**: ~10 minutes, 48 GB RAM
+- **Plotting**: ~15–20 minutes total, interactive
+- **Statistical Tests**: ~30–60 minutes, 64 GB RAM
 - **Statistical Report**: ~5 minutes, 10 GB RAM
 
 **Storage Requirements**:
@@ -759,14 +749,16 @@ Generated in `output/lr_analysis_YYYYMMDD/analysis_results/`:
 - Total: ~27.3 GB for complete pipeline
 
 **Timeline** (with parallelization):
-- Step 1 (Simulation): ~3 hour wall time (array parallelization)
-- Step 2 (LR Calc): ~1.5 hours wall time (array parallelization)
-- Step 3 (Combined LR): ~1 minutes wall time (array parallelization)
+- Step 1 (Simulation): ~3 hour wall time
+- Step 2 (LR Calc): ~1.5 hours wall time
+- Step 3 (Combined LR): ~1 minute wall time
 - Step 4 (Analysis): ~20 minutes
-- Step 5 (Plotting): ~15-20 minutes
-- Step 6 (Report): ~10 minutes
-- **Total**: ~5 hours from start to final report
+- Step 4.5 (Prepare Intermediates): ~10 minutes
+- Step 5 (Plotting): ~15–20 minutes (interactive)
+- Step 6 (Statistical Tests): ~30–60 minutes
+- Step 7 (Report): ~10 minutes
+- **Total**: ~6 hours from start to final outputs
 
 ---
 
-**Last Updated**: January 29, 2026
+**Last Updated**: April 10, 2026
