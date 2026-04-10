@@ -5,17 +5,9 @@
 # Creates:
 #   1. Main text figure: Violin plots by relationship type (all populations)
 #   2. Supplement figure: Box plots by population (showing consistency)
-#   3. Statistical summary table (CSV) for results section
+#   3. Descriptive summary statistics CSV for results section
 #
-# Statistical tests:
-#   - Kruskal-Wallis + epsilon-squared effect size: LR ~ relationship type
-#     (per loci set, "all" population) 
-#   - Spearman correlation: median log10(LR) ~ loci count (per relationship)
-#   - Kruskal-Wallis + epsilon-squared: population effect at Autosomal 29
-#     (per relationship type)
-#
-# NOTE: With large simulation sample sizes, p-values will be near-zero for
-# most tests. Effect sizes (epsilon-squared) are the informative statistic.
+# Statistical tests have been moved to run_statistical_tests.R
 #
 # Date: 2026-03-06
 # ==============================================================================
@@ -26,7 +18,6 @@ suppressMessages(suppressWarnings({
   library(data.table)
   library(scales)
   library(patchwork)
-  library(rstatix)   # For kruskal_effsize (epsilon-squared)
 }))
 
 # Helper Functions ----
@@ -53,7 +44,7 @@ log_message(paste("Output directory:", output_dir))
 dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)
 
 # Define Constants ----
-COMBINED_LR_MATCH_FILE <- "combined_LR_match.csv"
+COMBINED_LR_MATCH_FILE <- "combined_LR_match.csv.gz"
 
 # Factor levels for consistent ordering
 relationship_order  <- c("parent_child", "full_siblings", "half_siblings",
@@ -125,8 +116,7 @@ population_labels <- c(
 log_message("Loading matched LR data...")
 
 raw_lrs_path <- file.path(input_dir, COMBINED_LR_MATCH_FILE)
-combined_lrs_match <- fread(raw_lrs_path) %>%
-  as_tibble() %>%
+combined_lrs_match <- read_csv(raw_lrs_path, show_col_types = FALSE) %>%
   filter(is_correct_pop == TRUE, known_relationship == tested_relationship) %>%
   mutate(
     combined_LR = as.numeric(combined_LR),
@@ -268,181 +258,7 @@ ggsave(
 )
 log_message("Supplement figure saved")
 
-# ==============================================================================
-# STATISTICAL TESTS
-# ==============================================================================
-# Three targeted tests aligned with the matched results narrative:
-#
-#   TEST 1: Does log10(LR) differ by relationship type?
-#           Kruskal-Wallis per loci set ("all" population only)
-#           + epsilon-squared (ε²) effect size
-#           ε² interpretation: small ≥ 0.01, medium ≥ 0.06, large ≥ 0.14
-#
-#   TEST 2: Does log10(LR) increase with more loci?
-#           Spearman correlation of median log10(LR) vs. locus count,
-#           per relationship type
-#
-#   TEST 3: Does population affect log10(LR) in the matched analysis?
-#           Kruskal-Wallis per relationship type at Autosomal 29 only
-#           + epsilon-squared effect size
-#           (uses named populations only, excludes "all")
-# ==============================================================================
-
-log_message("Running statistical tests...")
-
-# ------------------------------------------------------------------------------
-# TEST 1: Relationship type effect per loci set
-# ------------------------------------------------------------------------------
-# Two-step approach to avoid cur_data() segfault with large datasets:
-# Step 1a: Kruskal-Wallis test statistics via summarise
-kw_rel_test <- main_data %>%
-  group_by(loci_set) %>%
-  summarise(
-    kw_statistic = kruskal.test(log_LR ~ relationship)$statistic,
-    kw_df        = kruskal.test(log_LR ~ relationship)$parameter,
-    kw_p_value   = kruskal.test(log_LR ~ relationship)$p.value,
-    n_pairs      = n(),
-    .groups = "drop"
-  )
-
-# Step 1b: Epsilon-squared via group_modify (avoids cur_data() crash)
-kw_rel_effsize <- main_data %>%
-  group_by(loci_set) %>%
-  group_modify(~ {
-    es <- kruskal_effsize(data = .x, formula = log_LR ~ relationship, ci = FALSE)
-    tibble(epsilon_sq = es$effsize, effect_size_magnitude = as.character(es$magnitude))
-  }) %>%
-  ungroup()
-
-kw_relationship <- left_join(kw_rel_test, kw_rel_effsize, by = "loci_set") %>%
-  mutate(
-    test     = "Kruskal-Wallis",
-    variable = "Relationship type",
-    note     = "All populations combined (population = 'all')"
-  )
-
-cat("\n=== TEST 1: Relationship Type Effect (per loci set) ===\n")
-print(kw_relationship %>%
-  select(loci_set, kw_statistic, kw_df, kw_p_value, epsilon_sq, effect_size_magnitude))
-
-# ------------------------------------------------------------------------------
-# TEST 2: Loci count effect on median log10(LR) per relationship
-# ------------------------------------------------------------------------------
-# Compute median log10(LR) per relationship x loci set, then correlate with
-# locus count. Uses "all" population data (same as main figure).
-median_by_loci <- main_data %>%
-  group_by(relationship, loci_set) %>%
-  summarise(median_logLR = median(log_LR), .groups = "drop") %>%
-  mutate(loci_count = loci_counts[as.character(loci_set)])
-
-spearman_loci <- median_by_loci %>%
-  group_by(relationship) %>%
-  summarise(
-    spearman_rho = cor(loci_count, median_logLR, method = "spearman"),
-    spearman_p   = cor.test(loci_count, median_logLR,
-                            method = "spearman", exact = FALSE)$p.value,
-    n_loci_sets  = n(),
-    .groups = "drop"
-  ) %>%
-  mutate(
-    test     = "Spearman correlation",
-    variable = "Loci count vs. median log10(LR)"
-  )
-
-cat("\n=== TEST 2: Loci Count Effect (Spearman, per relationship) ===\n")
-print(spearman_loci %>% select(relationship, spearman_rho, spearman_p))
-
-# ------------------------------------------------------------------------------
-# TEST 3: Population effect at Autosomal 29
-# ------------------------------------------------------------------------------
-pop_data_29 <- combined_lrs_match %>%
-  filter(loci_set == "Autosomal 29",
-         population != "all")   # exclude pooled population
-
-# Step 3a: Kruskal-Wallis test statistics
-kw_pop_test <- pop_data_29 %>%
-  group_by(relationship) %>%
-  summarise(
-    kw_statistic = kruskal.test(log_LR ~ population)$statistic,
-    kw_df        = kruskal.test(log_LR ~ population)$parameter,
-    kw_p_value   = kruskal.test(log_LR ~ population)$p.value,
-    n_pairs      = n(),
-    .groups = "drop"
-  )
-
-# Step 3b: Epsilon-squared via group_modify
-kw_pop_effsize <- pop_data_29 %>%
-  group_by(relationship) %>%
-  group_modify(~ {
-    es <- kruskal_effsize(data = .x, formula = log_LR ~ population, ci = FALSE)
-    tibble(epsilon_sq = es$effsize, effect_size_magnitude = as.character(es$magnitude))
-  }) %>%
-  ungroup()
-
-kw_population <- left_join(kw_pop_test, kw_pop_effsize, by = "relationship") %>%
-  mutate(
-    test     = "Kruskal-Wallis",
-    variable = "Population (at Autosomal 29)",
-    note     = "Named populations only (AfAm, Asian, Cauc, Hispanic)"
-  )
-
-cat("\n=== TEST 3: Population Effect at Autosomal 29 ===\n")
-print(kw_population %>%
-  select(relationship, kw_statistic, kw_df, kw_p_value, epsilon_sq, effect_size_magnitude))
-
-# ------------------------------------------------------------------------------
-# Compile and save statistical summary table
-# ------------------------------------------------------------------------------
-stats_table <- bind_rows(
-  # Test 1
-  kw_relationship %>%
-    transmute(
-      test,
-      question    = "Does LR differ by relationship type?",
-      grouping    = as.character(loci_set),
-      statistic   = round(kw_statistic, 2),
-      df          = kw_df,
-      p_value     = formatC(kw_p_value, format = "e", digits = 2),
-      epsilon_sq  = round(epsilon_sq, 3),
-      magnitude   = effect_size_magnitude,
-      note
-    ),
-  # Test 2
-  spearman_loci %>%
-    transmute(
-      test,
-      question    = "Does LR increase with more loci?",
-      grouping    = as.character(relationship),
-      statistic   = round(spearman_rho, 3),
-      df          = NA_real_,
-      p_value     = formatC(spearman_p, format = "e", digits = 2),
-      epsilon_sq  = NA_real_,
-      magnitude   = NA_character_,
-      note        = "rho = Spearman rank correlation coefficient"
-    ),
-  # Test 3
-  kw_population %>%
-    transmute(
-      test,
-      question    = "Does population affect LR (matched analysis)?",
-      grouping    = as.character(relationship),
-      statistic   = round(kw_statistic, 2),
-      df          = kw_df,
-      p_value     = formatC(kw_p_value, format = "e", digits = 2),
-      epsilon_sq  = round(epsilon_sq, 3),
-      magnitude   = effect_size_magnitude,
-      note        = "Autosomal 29 only; named populations (excludes 'all')"
-    )
-)
-
-write_csv(stats_table,
-          file.path(output_dir, "matched_statistical_tests.csv"))
-log_message("Statistical test results saved to matched_statistical_tests.csv")
-
-cat("\n=== FULL STATISTICAL SUMMARY TABLE ===\n")
-print(stats_table, n = Inf)
-
-# Descriptive Summary Statistics (unchanged from original)
+# Descriptive Summary Statistics
 # ==============================================================================
 log_message("Calculating descriptive summary statistics...")
 
