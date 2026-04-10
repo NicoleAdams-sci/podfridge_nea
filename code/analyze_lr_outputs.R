@@ -65,18 +65,16 @@ all_combined_strict_match <- all_combined_pop_match %>% filter(known_relationshi
 # 3. Define the data frame for Population MISMATCH (used for ratio analysis), relationship is known
 all_combined_mismatch <- all_combined %>% filter(is_correct_pop == FALSE)
 
-# 4. Save the combined LR files (Uses the STRICT match data)
-all_combined_match_file <- file.path(output_dir, "combined_LR_match.csv")
-fwrite(all_combined_strict_match, all_combined_match_file) # <-- Use the STRICT match data here
-
-# Clean up memory
+# 4. Save the strict match LR file
+# Compressed to save ~400 MB; fread() handles .gz transparently
+all_combined_match_file <- file.path(output_dir, "combined_LR_match.csv.gz")
+fwrite(all_combined_strict_match, all_combined_match_file, compress = "gzip")
 rm(all_combined_strict_match)
 gc()
 
-all_combined_mismatch_file <- file.path(output_dir, "combined_LR_mismatch.csv")
-fwrite(all_combined_mismatch, all_combined_mismatch_file)
-
-# Clean up memory
+# combined_LR_mismatch (is_correct_pop == FALSE) is not written separately —
+# it is a straightforward filter of combined_LR_all.rds and was 11.6 GB uncompressed.
+# Filter all_combined at read time in downstream scripts if needed.
 rm(all_combined_mismatch)
 gc()
 
@@ -95,9 +93,7 @@ ratios <- calculate_ratio_stats(all_combined)
 ratio_summary_file <- file.path(output_dir, "combined_LR_ratio_summary.csv")
 fwrite(ratios$ratio_summary, ratio_summary_file)
 
-ratios_raw_file <- file.path(output_dir, "combined_LR_ratios_raw.csv")
-fwrite(ratios$combined_lrs_ratio, ratios_raw_file)
-
-# Clean up memory
+# combined_lrs_ratio (the pair-level join) is not written — it was 13 GB uncompressed
+# and is fully summarized by ratio_summary above.
 rm(ratios)
 gc()

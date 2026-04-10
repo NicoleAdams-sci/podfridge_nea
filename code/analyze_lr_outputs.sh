@@ -69,19 +69,16 @@ if [ ${EXITCODE} -eq 0 ]; then
     if [ -d "${OUTPUT_DIR}" ]; then
         echo "Output saved to: ${OUTPUT_DIR}"
         echo ""
-        echo "Summary file counts:"
-        for pop in AfAm Cauc Hispanic Asian; do
-            if [ -d "${OUTPUT_DIR}/${pop}_summary" ]; then
-                count=$(ls ${OUTPUT_DIR}/${pop}_summary/*.csv 2>/dev/null | wc -l)
-                echo "  - ${pop}: ${count} summary files"
+        echo "Output files:"
+        for f in combined_LR_all.rds combined_LR_match.csv.gz combined_LR_summary_stats.csv combined_LR_ratio_summary.csv; do
+            if [ -f "${OUTPUT_DIR}/$f" ]; then
+                size=$(du -h "${OUTPUT_DIR}/$f" | cut -f1)
+                echo "  - $f ($size)"
             fi
         done
         echo ""
-        echo "Next steps:"
-        echo "1. Run plotting scripts:"
-        echo "   Rscript code/plots_known_NEA.R ${OUTPUT_DIR}"
-        echo "   Rscript code/plots_known_vs_tested_NEA.R ${OUTPUT_DIR}"
-        echo "   Rscript code/plots_known_vs_tested_byLocus_NEA.R ${OUTPUT_DIR}"
+        echo "Next step:"
+        echo "  sbatch code/prepare_combined_lr_intermediates.sh ${OUTPUT_DIR}"
     fi
 else
     echo "ERROR: LR analysis failed with exit code ${EXITCODE}"
