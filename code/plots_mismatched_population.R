@@ -267,6 +267,134 @@ ggsave(
 log_message(sprintf("Supplementary figure saved: %s", figS_filename))
 
 # ==============================================================================
+# FIGURE 3: AFRICAN AMERICAN POPULATION MISMATCH HIGHLIGHT
+# Panel A: Line plot — true AfAm pairs only, colored by each tested frequency
+#          database, showing LR trajectory across loci sets. Reveals both the
+#          magnitude of mismatch and where the "all" database sits relative to
+#          named mismatched populations.
+# Panel B: Autosomal 29 heatmap (both relationships), AfAm row highlighted.
+#          Shows that AfAm has the highest inflation across all tested databases.
+# ==============================================================================
+
+log_message("Generating Figure 3: African American highlight figure...")
+
+# Per-population color palette — AfAm blue = "correct", others = mismatched
+POP_COLORS <- c(
+  "AfAm"     = "#2166ac",   # Blue  — correct matched database
+  "Asian"    = "#d6604d",   # Red
+  "Cauc"     = "#4dac26",   # Green
+  "Hispanic" = "#b8860b",   # Gold
+  "all"      = "#808080"    # Gray  — combined database
+)
+POP_LABELS <- c(
+  "AfAm"     = "African American (matched)",
+  "Asian"    = "Asian",
+  "Cauc"     = "Caucasian",
+  "Hispanic" = "Hispanic",
+  "all"      = "Combined ('all')"
+)
+
+# --- Panel A: AfAm line plot by tested_population ----------------------------
+
+panel_a_data <- fig_pop_data %>%
+  filter(population == "AfAm",
+         known_relationship %in% c("Parent-Child", "Full Siblings"))
+
+panel_a <- ggplot(panel_a_data,
+                  aes(x        = n_loci,
+                      y        = median_log10_LR,
+                      color    = tested_population,
+                      linetype = pop_match_label,
+                      group    = interaction(tested_population, pop_match_label))) +
+  geom_line(linewidth = 0.9, alpha = 0.9) +
+  geom_point(size = 2.5) +
+  facet_wrap(~ known_relationship, nrow = 1) +
+  scale_x_continuous(breaks = c(13, 15, 20, 23, 29)) +
+  scale_color_manual(values = POP_COLORS,
+                     labels = POP_LABELS,
+                     name   = "Frequency\nDatabase") +
+  scale_linetype_manual(values = c("Matched" = "solid", "Mismatched" = "dashed"),
+                        guide  = "none") +   # linetype redundant with color here
+  labs(
+    tag = "A",
+    x   = "Number of Loci",
+    y   = "Median log\u2081\u2080(Combined LR)"
+  ) +
+  theme_publication() +
+  theme(legend.position = "right")
+
+# --- Panel B: Autosomal 29 heatmap, AfAm row highlighted ---------------------
+
+panel_b_data <- figS_data %>%
+  filter(loci_set         == "Autosomal 29",
+         known_relationship %in% c("Parent-Child", "Full Siblings")) %>%
+  mutate(text_color = if_else(median_log10_ratio > 1.5, "white", "black"),
+         text_color = if_else(is_diagonal, "black", text_color))
+
+panel_b <- ggplot(panel_b_data,
+                  aes(x = tested_population, y = population,
+                      fill = median_log10_ratio)) +
+  geom_tile(color = "white", linewidth = 1) +
+  # AfAm row highlight border
+  geom_tile(data   = filter(panel_b_data, population == "AfAm"),
+            color  = "#e31a1c", linewidth = 1.8, fill = NA) +
+  # Diagonal (matched) gold border
+  geom_tile(data   = filter(panel_b_data, is_diagonal),
+            color  = "gold", linewidth = 1.8, fill = NA) +
+  geom_text(aes(label = sprintf("%+.2f", median_log10_ratio)),
+            color = panel_b_data$text_color, size = 3.8) +
+  facet_wrap(~ known_relationship, nrow = 1) +
+  scale_fill_gradientn(
+    colors = c("white", "#c6dbef", "#6baed6", "#2166ac", "#08306b"),
+    limits = c(0, 3),
+    oob    = scales::squish,
+    name   = "Median\nlog\u2081\u2080(LR_wrong /\nLR_correct)\n(capped at 3)"
+  ) +
+  labs(
+    tag      = "B",
+    x        = "Tested Population Frequencies",
+    y        = "True Population",
+    caption  = "Red border = African American row | Gold border = matched frequencies"
+  ) +
+  theme_publication() +
+  theme(
+    axis.text.x     = element_text(angle = 45, hjust = 1),
+    panel.grid      = element_blank(),
+    legend.position = "right",
+    plot.caption    = element_text(hjust = 0, face = "italic", color = "gray40")
+  ) +
+  coord_equal()
+
+# --- Combine with patchwork --------------------------------------------------
+
+fig_afam <- panel_a / panel_b +
+  plot_layout(heights = c(1, 1.3)) +
+  plot_annotation(
+    title    = "African American Population Frequency Mismatch",
+    subtitle = paste0(
+      "A: Median log\u2081\u2080(LR) for true African American pairs across frequency databases\n",
+      "B: LR inflation (log\u2081\u2080 ratio) at Autosomal 29 \u2014 African American pairs show ",
+      "consistently higher inflation across all mismatched databases"
+    ),
+    theme = theme(
+      plot.title    = element_text(size = 16, hjust = 0.5, face = "bold"),
+      plot.subtitle = element_text(size = 11, hjust = 0.5, color = "gray30")
+    )
+  )
+
+fig_afam_filename <- "mismatched_population_AfAm_highlight.png"
+ggsave(
+  filename = file.path(output_dir, fig_afam_filename),
+  plot     = fig_afam,
+  width    = 12,
+  height   = 12,
+  dpi      = 600,
+  bg       = "white"
+)
+
+log_message(sprintf("AfAm highlight figure saved: %s", fig_afam_filename))
+
+# ==============================================================================
 # SUMMARY STATISTICS TABLE
 # ==============================================================================
 
@@ -288,9 +416,10 @@ log_message(sprintf("Summary table saved: %s", detailed_filename))
 # ==============================================================================
 
 cat("\nOUTPUT FILES:\n")
-cat(sprintf("   - %s (main figure)\n",        fig_pop_filename))
-cat(sprintf("   - %s (supplementary figure)\n", figS_filename))
-cat(sprintf("   - %s (summary table)\n",       detailed_filename))
+cat(sprintf("   - %s (main figure)\n",           fig_pop_filename))
+cat(sprintf("   - %s (supplementary figure)\n",  figS_filename))
+cat(sprintf("   - %s (AfAm highlight figure)\n", fig_afam_filename))
+cat(sprintf("   - %s (summary table)\n",         detailed_filename))
 cat("\nAll files saved to:", output_dir, "\n")
 cat("================================================================================\n")
 
