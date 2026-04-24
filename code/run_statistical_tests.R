@@ -95,6 +95,47 @@ population_order <- c("AfAm", "Asian", "Cauc", "Hispanic", "all")
 
 
 # =============================================================================
+# P-VALUE HELPERS
+# =============================================================================
+
+# Compute log10(p) from a chi-squared statistic in log-space to avoid underflow.
+# kruskal.test returns p = 0 when H >> df (e.g. H=127000, df=5).
+# pchisq(..., log.p = TRUE) stays in log-space and never underflows.
+chi2_log10p <- function(statistic, df) {
+  unname(pchisq(statistic, df, lower.tail = FALSE, log.p = TRUE) / log(10))
+}
+
+# Compute log10(p) and the Z-score from a Wilcoxon signed-rank V statistic.
+# wilcox.test returns p = 0 for large n with systematic shift (Z >> 6).
+# Uses the same normal approximation as wilcox.test(exact=FALSE, correct=TRUE).
+# Returns a list: z (the Z-score) and log10_p (two-tailed log10 p-value).
+wilcox_z_log10p <- function(v_stat, n) {
+  mu_v  <- n * (n + 1) / 4
+  var_v <- n * (n + 1) * (2 * n + 1) / 24
+  # Continuity correction matching R's wilcox.test default
+  z     <- (v_stat - mu_v - 0.5 * sign(v_stat - mu_v)) / sqrt(var_v)
+  # Two-tailed: log10(2 * pnorm(-|z|)) = log(2)/log(10) + log10(pnorm(-|z|))
+  log10_p <- log(2) / log(10) +
+             pnorm(abs(z), lower.tail = FALSE, log.p = TRUE) / log(10)
+  list(z = unname(z), log10_p = unname(log10_p))
+}
+
+# Format a p-value for manuscript reporting.
+#   - If raw p underflowed to 0, express as "10^{X}" using log10_p.
+#   - Otherwise format with scientific notation when p < 0.001.
+format_pval <- function(p, log10_p = NULL) {
+  mapply(function(pv, lp) {
+    if (is.na(pv)) return(NA_character_)
+    if (pv == 0 && !is.null(lp) && !is.na(lp))
+      return(sprintf("10^%.1f", lp))          # e.g. "10^-2761.3"
+    if (pv < 0.001)
+      return(sprintf("%.3e", pv))             # e.g. "1.406e-211"
+    sprintf("%.4f", pv)
+  }, p, log10_p, SIMPLIFY = TRUE, USE.NAMES = FALSE)
+}
+
+
+# =============================================================================
 # SECTION 1: MATCHED POPULATION TESTS
 # Input: combined_LR_match.csv.gz (pair-level, strict match)
 # =============================================================================
@@ -135,13 +176,17 @@ log_message("Test 1: KW relationship type effect per loci set...")
 
 kw_rel_test <- main_data %>%
   group_by(loci_set) %>%
-  summarise(
-    kw_statistic = kruskal.test(log_LR ~ relationship)$statistic,
-    kw_df        = kruskal.test(log_LR ~ relationship)$parameter,
-    kw_p_value   = kruskal.test(log_LR ~ relationship)$p.value,
-    n_pairs      = n(),
-    .groups = "drop"
-  )
+  group_modify(~ {
+    kt <- kruskal.test(log_LR ~ relationship, data = .x)
+    tibble(
+      kw_statistic = kt$statistic,
+      kw_df        = kt$parameter,
+      kw_p_value   = kt$p.value,
+      kw_log10_p   = chi2_log10p(kt$statistic, kt$parameter),
+      n_pairs      = nrow(.x)
+    )
+  }) %>%
+  ungroup()
 
 kw_rel_effsize <- main_data %>%
   group_by(loci_set) %>%
@@ -168,21 +213,24 @@ log_message("Test 2: Spearman loci count effect...")
 median_by_loci <- main_data %>%
   group_by(relationship, loci_set) %>%
   summarise(median_logLR = median(log_LR), .groups = "drop") %>%
-  mutate(loci_count = loci_counts[as.character(loci_set)])
+  # loci_set is already relabelled ("Core 13", etc.) but loci_counts is keyed
+  # on the original level names ("core_13", etc.) — build a label-keyed lookup
+  mutate(loci_count = setNames(loci_counts, loci_set_labels)[as.character(loci_set)])
 
 test2 <- median_by_loci %>%
   group_by(relationship) %>%
   summarise(
     spearman_rho = tryCatch(
       cor(loci_count, median_logLR, method = "spearman"),
-      warning = function(w) NA_real_,
+      # only NA on genuine errors (e.g. zero-variance in Unrelated)
       error   = function(e) NA_real_
     ),
     spearman_p = tryCatch(
-      cor.test(loci_count, median_logLR,
-               method = "spearman", exact = FALSE)$p.value,
-      warning = function(w) NA_real_,
-      error   = function(e) NA_real_
+      suppressWarnings(
+        cor.test(loci_count, median_logLR,
+                 method = "spearman", exact = FALSE)$p.value
+      ),
+      error = function(e) NA_real_
     ),
     n_loci_sets  = n(),
     .groups = "drop"
@@ -203,13 +251,17 @@ log_message("Test 3: KW population effect at Autosomal 29...")
 
 kw_pop_test <- pop_data_29 %>%
   group_by(relationship) %>%
-  summarise(
-    kw_statistic = kruskal.test(log_LR ~ population)$statistic,
-    kw_df        = kruskal.test(log_LR ~ population)$parameter,
-    kw_p_value   = kruskal.test(log_LR ~ population)$p.value,
-    n_pairs      = n(),
-    .groups = "drop"
-  )
+  group_modify(~ {
+    kt <- kruskal.test(log_LR ~ population, data = .x)
+    tibble(
+      kw_statistic = kt$statistic,
+      kw_df        = kt$parameter,
+      kw_p_value   = kt$p.value,
+      kw_log10_p   = chi2_log10p(kt$statistic, kt$parameter),
+      n_pairs      = nrow(.x)
+    )
+  }) %>%
+  ungroup()
 
 kw_pop_effsize <- pop_data_29 %>%
   group_by(relationship) %>%
@@ -233,22 +285,31 @@ matched_stats <- bind_rows(
   test1 %>% transmute(section, test, question, grouping,
                       statistic = round(coalesce(kw_statistic), 3),
                       df = kw_df, p_value = kw_p_value,
+                      log10_p = round(kw_log10_p, 1),
                       effect_size = round(epsilon_sq, 3),
                       effect_size_type = "epsilon-squared",
                       magnitude, n = n_pairs, note),
   test2 %>% transmute(section, test, question, grouping,
                       statistic = round(spearman_rho, 3),
                       df = NA_real_, p_value = spearman_p,
+                      log10_p = NA_real_,
                       effect_size = round(spearman_rho, 3),
                       effect_size_type = "Spearman rho",
                       magnitude = NA_character_, n = n_loci_sets, note),
   test3 %>% transmute(section, test, question, grouping,
                       statistic = round(kw_statistic, 3),
                       df = kw_df, p_value = kw_p_value,
+                      log10_p = round(kw_log10_p, 1),
                       effect_size = round(epsilon_sq, 3),
                       effect_size_type = "epsilon-squared",
                       magnitude, n = n_pairs, note)
-)
+) %>%
+  # BH correction within each question block (across all groupings for that question)
+  group_by(question) %>%
+  mutate(p_adj_bh = p.adjust(p_value, method = "BH")) %>%
+  ungroup() %>%
+  # Human-readable p-value: uses log10_p when raw p underflowed to 0
+  mutate(p_value_display = format_pval(p_value, log10_p))
 
 fwrite(matched_stats, file.path(output_dir, "stats_matched.csv"))
 log_message(sprintf("Wrote stats_matched.csv (%d rows)", nrow(matched_stats)))
@@ -326,15 +387,31 @@ log_message("Test 4: Paired Wilcoxon on log10(LR_wrong / LR_correct)...")
 
 test4 <- pairs_ratio %>%
   group_by(population, tested_population, known_relationship, loci_set) %>%
-  summarise(
-    median_log10_ratio = median(log10_ratio, na.rm = TRUE),
-    wilcox_p           = tryCatch(
-      wilcox.test(log10_ratio, mu = 0, exact = FALSE)$p.value,
-      error = function(e) NA_real_
-    ),
-    n_pairs            = n(),
-    .groups = "drop"
-  ) %>%
+  group_modify(~ {
+    x <- .x$log10_ratio
+    wt <- tryCatch(
+      wilcox.test(x, mu = 0, exact = FALSE),
+      error = function(e) NULL
+    )
+    if (is.null(wt)) {
+      return(tibble(median_log10_ratio = median(x, na.rm = TRUE),
+                    wilcox_v = NA_real_, wilcox_z = NA_real_,
+                    wilcox_p = NA_real_, wilcox_log10_p = NA_real_,
+                    n_pairs = length(x)))
+    }
+    v_stat <- unname(wt$statistic)
+    n_nz   <- sum(x != 0, na.rm = TRUE)   # non-zero differences (denominator for Z)
+    zl     <- wilcox_z_log10p(v_stat, n_nz)
+    tibble(
+      median_log10_ratio = median(x, na.rm = TRUE),
+      wilcox_v           = v_stat,
+      wilcox_z           = round(zl$z, 3),
+      wilcox_p           = wt$p.value,
+      wilcox_log10_p     = round(zl$log10_p, 1),
+      n_pairs            = length(x)
+    )
+  }) %>%
+  ungroup() %>%
   mutate(
     section          = "Mismatched population",
     test             = "Wilcoxon signed-rank",
@@ -345,7 +422,72 @@ test4 <- pairs_ratio %>%
   )
 
 # ------------------------------------------------------------------------------
-# TEST 5: Which factors drive LR inflation?
+# TEST 4b: Does the "all" population database buffer LR inflation compared
+# to named mismatched populations?
+# Approach: compute per-cell medians first (one per true_pop x tested_pop x
+# relationship x loci_set), then compare "all" vs named_mismatched medians
+# using a paired Wilcoxon on matched cells. This avoids pseudoreplication from
+# the large pair-level n and makes the test n reflect distinct conditions (~20
+# cells per true population) rather than simulated pairs.
+# Effect size: median difference (named_mismatched - all) across cells.
+# ------------------------------------------------------------------------------
+log_message("Test 4b: Paired Wilcoxon on cell medians — 'all' vs named-mismatched...")
+
+# Compute per-cell medians from pairs_ratio (already excludes matched pop_match)
+cell_medians_4b <- pairs_ratio %>%
+  filter(as.character(population) != "all") %>%   # exclude "all" true population
+  mutate(frequency_group = if_else(as.character(tested_population) == "all",
+                                   "all_db", "named_mismatched")) %>%
+  group_by(population, known_relationship, loci_set,
+           frequency_group, tested_population) %>%
+  summarise(cell_median = median(log10_ratio, na.rm = TRUE),
+            .groups = "drop")
+
+# For each true_pop x relationship x loci_set: one "all_db" value and
+# the mean of named_mismatched values (averaging over the 3 mismatched named pops)
+cell_summary_4b <- cell_medians_4b %>%
+  group_by(population, known_relationship, loci_set, frequency_group) %>%
+  summarise(group_median = mean(cell_median), .groups = "drop") %>%
+  pivot_wider(names_from = frequency_group, values_from = group_median) %>%
+  filter(!is.na(all_db), !is.na(named_mismatched))
+
+# Paired Wilcoxon per true population: each pair = one loci_set x relationship cell
+test4b <- cell_summary_4b %>%
+  group_by(population) %>%
+  group_modify(~ {
+    wt <- tryCatch(
+      wilcox.test(.x$named_mismatched, .x$all_db,
+                  paired = TRUE, exact = FALSE),
+      error = function(e) NULL
+    )
+    if (is.null(wt)) {
+      return(tibble(wilcox_v = NA_real_, wilcox_z = NA_real_,
+                    wilcox_p = NA_real_, wilcox_log10_p = NA_real_,
+                    median_diff = NA_real_, n_cells = nrow(.x)))
+    }
+    v_stat <- unname(wt$statistic)
+    diffs  <- .x$named_mismatched - .x$all_db
+    n_nz   <- sum(diffs != 0, na.rm = TRUE)
+    zl     <- wilcox_z_log10p(v_stat, n_nz)
+    tibble(
+      wilcox_v      = v_stat,
+      wilcox_z      = round(zl$z, 3),
+      wilcox_p      = wt$p.value,
+      wilcox_log10_p = round(zl$log10_p, 1),
+      median_diff   = round(median(diffs, na.rm = TRUE), 3),
+      n_cells       = nrow(.x)
+    )
+  }) %>%
+  ungroup() %>%
+  mutate(
+    section          = "Mismatched population",
+    test             = "Wilcoxon signed-rank (paired cell medians)",
+    question         = "Does 'all' population database buffer LR inflation vs named mismatched?",
+    effect_size_type = "median log10 ratio difference (named_mismatched - all_db)",
+    note             = "Positive = named mismatched inflates more than 'all'; n = loci_set x relationship cells"
+  )
+
+
 # Linear model: log10_ratio ~ true_population + tested_population + loci_set
 # per relationship type. Reports eta-squared (SS_effect / SS_total) as effect size.
 # Note: fitted on group medians (one row per cell) to avoid pseudoreplication
@@ -396,18 +538,33 @@ mismatch_stats <- bind_rows(
   test4 %>% transmute(section, test, question,
                       grouping = paste(population, tested_population,
                                        known_relationship, loci_set, sep = " | "),
-                      statistic = NA_real_, df = NA_real_,
+                      statistic = wilcox_z,
+                      df = NA_real_,
                       p_value = wilcox_p,
+                      log10_p = wilcox_log10_p,
                       effect_size, effect_size_type,
                       magnitude = NA_character_, n = n_pairs, note),
+  test4b %>% transmute(section, test, question,
+                      grouping = population,
+                      statistic = wilcox_z,
+                      df = NA_real_, p_value = wilcox_p,
+                      log10_p = wilcox_log10_p,
+                      effect_size = median_diff,
+                      effect_size_type,
+                      magnitude = NA_character_, n = n_cells, note),
   test5 %>% transmute(section, test, question,
                       grouping = paste(known_relationship, term, sep = " | "),
                       statistic = round(f_value, 3),
                       df = df_term, p_value,
+                      log10_p = round(log10(p_value), 1),
                       effect_size = round(eta_sq, 3),
                       effect_size_type,
                       magnitude = NA_character_, n = NA_real_, note)
-)
+) %>%
+  group_by(question) %>%
+  mutate(p_adj_bh = p.adjust(p_value, method = "BH")) %>%
+  ungroup() %>%
+  mutate(p_value_display = format_pval(p_value, log10_p))
 
 fwrite(mismatch_stats, file.path(output_dir, "stats_mismatched_population.csv"))
 log_message(sprintf("Wrote stats_mismatched_population.csv (%d rows)", nrow(mismatch_stats)))
@@ -474,6 +631,7 @@ run_ca_trend <- function(data, threshold_col, threshold_label) {
       tibble(
         ca_statistic = if (is.null(test_result)) NA_real_ else unname(test_result$statistic),
         ca_p_value   = if (is.null(test_result)) NA_real_ else test_result$p.value,
+        ca_log10_p   = if (is.null(test_result)) NA_real_ else chi2_log10p(unname(test_result$statistic), df = 1),
         threshold    = threshold_label
       )
     }) %>%
@@ -534,6 +692,7 @@ run_logistic <- function(data, tested_rel, threshold_col, threshold_label) {
     deviance  = drop_table$Deviance[-1],
     df_term   = drop_table$Df[-1],
     p_value   = drop_table$`Pr(>Chi)`[-1],
+    log10_p   = chi2_log10p(drop_table$Deviance[-1], drop_table$Df[-1]),
     dev_explained = drop_table$Deviance[-1] / fit$null.deviance
   ) %>%
     mutate(
@@ -568,6 +727,7 @@ fpr_stats <- bind_rows(
                                        classification, threshold, sep = " | "),
                       statistic = round(ca_statistic, 3),
                       df = NA_real_, p_value = ca_p_value,
+                      log10_p = round(ca_log10_p, 1),
                       effect_size = NA_real_,
                       effect_size_type, magnitude = NA_character_,
                       n = NA_real_, note),
@@ -575,10 +735,15 @@ fpr_stats <- bind_rows(
                       grouping = paste(tested_relationship, threshold, term, sep = " | "),
                       statistic = round(deviance, 3),
                       df = df_term, p_value,
+                      log10_p = round(log10_p, 1),
                       effect_size = round(dev_explained, 3),
                       effect_size_type, magnitude = NA_character_,
                       n = NA_real_, note)
-)
+) %>%
+  group_by(question) %>%
+  mutate(p_adj_bh = p.adjust(p_value, method = "BH")) %>%
+  ungroup() %>%
+  mutate(p_value_display = format_pval(p_value, log10_p))
 
 fwrite(fpr_stats, file.path(output_dir, "stats_fpr_cutoffs.csv"))
 log_message(sprintf("Wrote stats_fpr_cutoffs.csv (%d rows)", nrow(fpr_stats)))
