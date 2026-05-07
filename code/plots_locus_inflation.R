@@ -35,6 +35,7 @@ suppressMessages({
   library(data.table)
   library(scales)
   library(patchwork)
+  library(ggrepel)
 })
 
 log_message <- function(msg) cat(sprintf("[%s] %s\n", format(Sys.time()), msg))
@@ -265,8 +266,8 @@ fig2_data <- inflation %>%
                         labels = POPULATION_LABELS),
     tested_pop = factor(tested_population, levels = names(POPULATION_LABELS),
                         labels = POPULATION_LABELS),
-    # Use canonical rank order from Fig 1 (top = most inflating at top)
-    locus_ordered = factor(locus, levels = rev(locus_order))
+    # Use same factor levels as Fig 1 so F13B appears at top in both figures
+    locus_ordered = factor(locus, levels = locus_order)
   )
 
 fig2 <- ggplot(fig2_data,
@@ -305,12 +306,19 @@ ggsave(file.path(output_dir, fig2_file),
 log_message(paste("Figure 2 saved:", fig2_file))
 
 # =============================================================================
-# FIGURE 3: HETEROZYGOSITY OF TOP DRIVER LOCI
+# FIGURE 3: HETEROZYGOSITY DIFFERENCE vs. LR INFLATION — ALL 29 LOCI
+#
+# Scatter plot: x = observed heterozygosity difference (AfAm - Asian),
+#               y = median log10 inflation (AfAm->Asian, full siblings)
+# All 29 loci included. Driver loci labeled. Trend line added.
+# Honest framing: shows where heterozygosity explains inflation and where
+# it does not — loci with negative x (Asian more heterozygous) but positive
+# y (still inflating) are visible and not hidden.
 # =============================================================================
 
-log_message("Generating Figure 3: Heterozygosity of driver loci...")
+log_message("Generating Figure 3: Heterozygosity difference vs. LR inflation (all loci)...")
 
-# Identify driver loci: median > threshold in AfAm<->Asian for full siblings
+# Identify driver loci for labeling (used in table too)
 driver_loci <- inflation %>%
   filter(
     known_relationship == "Full Siblings",
@@ -326,50 +334,72 @@ driver_loci <- inflation %>%
 log_message(sprintf("Identified %d primary driver loci at threshold %.2f.",
                     length(driver_loci), DRIVER_THRESHOLD))
 
-# Heterozygosity in long format for driver loci
-heteroz_long <- heteroz %>%
-  filter(locus %in% driver_loci) %>%
-  select(locus, panel, AfAm, Asian, Cauc, Hispanic) %>%
-  pivot_longer(cols = c(AfAm, Asian, Cauc, Hispanic),
-               names_to  = "population",
-               values_to = "obs_heterozygosity") %>%
-  mutate(
-    population    = factor(population, levels = names(POPULATION_LABELS),
-                           labels = POPULATION_LABELS),
-    locus_ordered = factor(locus, levels = driver_loci)
-  )
+# Build scatter data: all 29 loci
+# x = AfAm - Asian heterozygosity difference (from heteroz table)
+# y = median log10 inflation AfAm->Asian, full siblings
+fig3_data <- inflation %>%
+  filter(population == "AfAm", tested_population == "Asian",
+         known_relationship == "Full Siblings") %>%
+  select(locus, panel, median_log10_ratio) %>%
+  left_join(
+    heteroz %>% select(locus, het_AfAm = AfAm, het_Asian = Asian,
+                       het_diff = AfAm_minus_Asian),
+    by = "locus"
+  ) %>%
+  mutate(is_driver = locus %in% driver_loci)
 
-fig3 <- ggplot(heteroz_long,
-               aes(x = locus_ordered, y = obs_heterozygosity,
-                   color = population, group = population)) +
+fig3 <- ggplot(fig3_data,
+               aes(x = het_diff, y = median_log10_ratio, color = panel)) +
 
-  geom_line(alpha = 0.5, linewidth = 0.6) +
-  geom_point(size = 3) +
+  # Reference lines
+  geom_hline(yintercept = 0,              color = "gray70", linewidth = 0.4) +
+  geom_hline(yintercept = DRIVER_THRESHOLD, color = "gray40", linewidth = 0.4,
+             linetype = "dotted") +
+  geom_vline(xintercept = 0,              color = "gray70", linewidth = 0.4) +
 
-  scale_color_manual(values = setNames(POPULATION_COLORS,
-                                       POPULATION_LABELS[names(POPULATION_COLORS)]),
-                     name = "Population") +
-  scale_y_continuous(limits = c(0.55, 1.0),
-                     labels = scales::percent_format(accuracy = 1)) +
+  # Trend line across all loci — shows overall relationship
+  geom_smooth(aes(group = 1), method = "lm", se = TRUE,
+              color = "gray50", fill = "gray85", linewidth = 0.7,
+              show.legend = FALSE) +
+
+  # All loci
+  geom_point(aes(size = is_driver), alpha = 0.85) +
+  scale_size_manual(values = c("FALSE" = 2, "TRUE" = 3.5), guide = "none") +
+
+  # Label driver loci only
+  ggrepel::geom_text_repel(
+    data    = filter(fig3_data, is_driver),
+    aes(label = locus),
+    size    = 3.2,
+    color   = "gray20",
+    box.padding     = 0.4,
+    point.padding   = 0.3,
+    min.segment.len = 0.2,
+    show.legend     = FALSE
+  ) +
+
+  scale_color_manual(values = PANEL_COLORS, name = "CODIS Panel", drop = FALSE) +
+
+  scale_x_continuous(labels = scales::percent_format(accuracy = 1)) +
 
   labs(
-    title    = "Observed Heterozygosity at Primary Driver Loci",
-    subtitle = paste0("Loci with median log\u2081\u2080(LR_wrong / LR_correct) \u2265 ", DRIVER_THRESHOLD,
-                      " in AfAm \u2194 Asian full siblings mismatch\n",
-                      "Ordered left to right by decreasing AfAm\u2192Asian inflation"),
-    x        = "Locus",
-    y        = "Observed Heterozygosity"
+    title    = "Heterozygosity Difference vs. LR Inflation: All 29 Loci",
+    subtitle = paste0(
+      "x-axis: observed heterozygosity (AfAm \u2212 Asian) | ",
+      "y-axis: median log\u2081\u2080(LR_wrong / LR_correct), AfAm\u2192Asian, full siblings\n",
+      "Labeled loci exceed driver threshold (",  DRIVER_THRESHOLD, "). ",
+      "Loci with negative x show Asian is more heterozygous yet some still inflate."
+    ),
+    x = "Heterozygosity Difference (AfAm \u2212 Asian)",
+    y = "Median log\u2081\u2080(LR_wrong / LR_correct)"
   ) +
 
   theme_publication() +
-  theme(
-    axis.text.x     = element_text(angle = 45, hjust = 1),
-    legend.position = "right"
-  )
+  theme(legend.position = "right")
 
 fig3_file <- "locus_inflation_heterozygosity.png"
 ggsave(file.path(output_dir, fig3_file),
-       plot = fig3, width = 10, height = 6, dpi = 300, bg = "white")
+       plot = fig3, width = 10, height = 7, dpi = 300, bg = "white")
 log_message(paste("Figure 3 saved:", fig3_file))
 
 # =============================================================================
