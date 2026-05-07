@@ -259,7 +259,9 @@ heteroz_wide <- dcast(heteroz_pooled, locus ~ population,
 # Add AfAm - Asian difference (the key comparison)
 if (all(c("AfAm", "Asian") %in% names(heteroz_wide))) {
   heteroz_wide[, AfAm_minus_Asian := AfAm - Asian]
-  setorder(heteroz_wide, -abs(AfAm_minus_Asian))
+  heteroz_wide[, abs_diff := abs(AfAm_minus_Asian)]
+  setorder(heteroz_wide, -abs_diff)
+  heteroz_wide[, abs_diff := NULL]
 }
 
 heteroz_file <- file.path(output_dir, "locus_heterozygosity_summary.csv")
