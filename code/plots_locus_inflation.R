@@ -363,8 +363,7 @@ fig3 <- ggplot(fig3_data,
               show.legend = FALSE) +
 
   # All loci
-  geom_point(aes(size = is_driver), alpha = 0.85) +
-  scale_size_manual(values = c("FALSE" = 2, "TRUE" = 3.5), guide = "none") +
+  geom_point(size = 2.5, alpha = 0.85) +
 
   # Label driver loci only
   ggrepel::geom_text_repel(
