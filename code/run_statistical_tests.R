@@ -422,6 +422,59 @@ test4 <- pairs_ratio %>%
   )
 
 # ------------------------------------------------------------------------------
+# DESCRIPTIVE: Bootstrap 95% CI for key cells cited in results text
+# Rather than all 160 cells, targets only the comparisons highlighted in text:
+#   - AfAm x Asian     at Autosomal 29 (largest inflation)
+#   - AfAm x all       at Autosomal 29 ("all" database buffering)
+#   - AfAm x Cauc/Hisp at Autosomal 29 (for context)
+# Both relationship types included. R=999 per cell.
+# ------------------------------------------------------------------------------
+log_message("Bootstrap 95% CI for key reported cells...")
+
+set.seed(42)
+
+key_cells <- pairs_ratio %>%
+  filter(
+    as.character(population)        == "AfAm",
+    as.character(loci_set)          == "autosomal_29",
+    as.character(tested_population) %in% c("Asian", "Cauc", "Hispanic", "all"),
+    !is.na(log10_ratio), is.finite(log10_ratio)
+  )
+
+bootstrap_ci_key <- key_cells %>%
+  group_by(population, tested_population, known_relationship, loci_set) %>%
+  group_modify(~ {
+    x <- .x$log10_ratio
+    boot_medians <- replicate(999, median(sample(x, length(x), replace = TRUE)))
+    tibble(
+      median_log10_ratio = round(median(x), 3),
+      ci_lower_95        = round(quantile(boot_medians, 0.025), 3),
+      ci_upper_95        = round(quantile(boot_medians, 0.975), 3),
+      n_pairs            = length(x),
+      ci_display         = sprintf("%+.3f [%+.3f, %+.3f]",
+                                   median(x),
+                                   quantile(boot_medians, 0.025),
+                                   quantile(boot_medians, 0.975))
+    )
+  }) %>%
+  ungroup()
+
+log_message("Key bootstrap CIs:")
+for (i in seq_len(nrow(bootstrap_ci_key))) {
+  r <- bootstrap_ci_key[i, ]
+  log_message(sprintf("  %s | %s | %s: %s",
+                       r$known_relationship, r$tested_population,
+                       r$loci_set, r$ci_display))
+}
+
+fwrite(bootstrap_ci_key,
+       file.path(output_dir, "mismatched_pop_key_bootstrap_ci.csv"))
+log_message("Wrote mismatched_pop_key_bootstrap_ci.csv")
+
+# ------------------------------------------------------------------------------
+# TEST 4b: Does the "all" population database buffer LR inflation compared
+
+# ------------------------------------------------------------------------------
 # TEST 4b: Does the "all" population database buffer LR inflation compared
 # to named mismatched populations?
 # Approach: compute per-cell medians first (one per true_pop x tested_pop x
@@ -569,7 +622,9 @@ mismatch_stats <- bind_rows(
 fwrite(mismatch_stats, file.path(output_dir, "stats_mismatched_population.csv"))
 log_message(sprintf("Wrote stats_mismatched_population.csv (%d rows)", nrow(mismatch_stats)))
 
-rm(all_combined, correct_lrs, wrong_lrs, pairs_ratio, cell_medians)
+rm(all_combined, correct_lrs, wrong_lrs, pairs_ratio,
+   cell_medians, cell_medians_4b, cell_summary_4b,
+   key_cells, bootstrap_ci_key)
 gc()
 
 
