@@ -8,10 +8,10 @@
 # Creates:
 #   Fig 1:  Ranked locus inflation — AfAm <-> Asian mismatch, full siblings
 #           and parent-child. Lollipop chart, loci colored by CODIS panel.
-#   Fig 2:  All mismatch directions — heatmap of per-locus median log10 ratio
+#   Fig 2:  Combined A/B figure:
+#     A)    All mismatch directions — heatmap of per-locus median log10 ratio
 #           for full siblings across all true x tested population combinations.
-#   Fig 3:  Observed heterozygosity for top driver loci by population.
-#           Shows biological basis for inflation pattern.
+#     B)    Observed heterozygosity for primary driver loci by population.
 #   Table:  Primary driver loci CSV — loci with median log10 ratio > threshold
 #           in at least one key mismatch direction, annotated with panel
 #           membership and heterozygosity.
@@ -35,7 +35,6 @@ suppressMessages({
   library(data.table)
   library(scales)
   library(patchwork)
-  library(ggrepel)
 })
 
 log_message <- function(msg) cat(sprintf("[%s] %s\n", format(Sys.time()), msg))
@@ -251,10 +250,42 @@ ggsave(file.path(output_dir, fig1_file),
 log_message(paste("Figure 1 saved:", fig1_file))
 
 # =============================================================================
-# FIGURE 2: HEATMAP — all mismatch directions, full siblings
+# IDENTIFY PRIMARY DRIVER LOCI — direction-specific
+# Each direction has its own ordered loci set for Panel B.
+# Union used for the driver loci table.
 # =============================================================================
 
-log_message("Generating Figure 2: All-direction mismatch heatmap...")
+# AfAm->Asian: loci above threshold, ordered by that direction's inflation
+driver_loci_afam_asian <- inflation %>%
+  filter(known_relationship == "Full Siblings",
+         population == "AfAm", tested_population == "Asian",
+         median_log10_ratio >= DRIVER_THRESHOLD) %>%
+  arrange(desc(median_log10_ratio)) %>%
+  pull(locus)
+
+# Asian->AfAm: loci above threshold, ordered by that direction's inflation
+driver_loci_asian_afam <- inflation %>%
+  filter(known_relationship == "Full Siblings",
+         population == "Asian", tested_population == "AfAm",
+         median_log10_ratio >= DRIVER_THRESHOLD) %>%
+  arrange(desc(median_log10_ratio)) %>%
+  pull(locus)
+
+# Union for the driver loci table
+driver_loci <- union(driver_loci_afam_asian, driver_loci_asian_afam)
+
+log_message(sprintf(
+  "Driver loci: %d in AfAm->Asian, %d in Asian->AfAm, %d in overlap, %d total.",
+  length(driver_loci_afam_asian), length(driver_loci_asian_afam),
+  length(intersect(driver_loci_afam_asian, driver_loci_asian_afam)),
+  length(driver_loci)
+))
+
+# =============================================================================
+# FIGURE 2A: HEATMAP — all mismatch directions, full siblings
+# =============================================================================
+
+log_message("Generating Figure 2A: All-direction mismatch heatmap...")
 
 fig2_data <- inflation %>%
   filter(
@@ -300,106 +331,110 @@ fig2 <- ggplot(fig2_data,
     legend.position = "right"
   )
 
-fig2_file <- "locus_inflation_heatmap.png"
-ggsave(file.path(output_dir, fig2_file),
-       plot = fig2, width = 14, height = 10, dpi = 300, bg = "white")
-log_message(paste("Figure 2 saved:", fig2_file))
+fig2_file <- "locus_inflation_heatmap_heterozygosity.png"  # combined output
 
 # =============================================================================
-# FIGURE 3: HETEROZYGOSITY DIFFERENCE vs. LR INFLATION — ALL 29 LOCI
+# FIGURE 2B: OBSERVED HETEROZYGOSITY — all driver loci, single panel
 #
-# Scatter plot: x = observed heterozygosity difference (AfAm - Asian),
-#               y = median log10 inflation (AfAm->Asian, full siblings)
-# All 29 loci included. Driver loci labeled. Trend line added.
-# Honest framing: shows where heterozygosity explains inflation and where
-# it does not — loci with negative x (Asian more heterozygous) but positive
-# y (still inflating) are visible and not hidden.
+# All 17 driver loci shown. Color = population. Shape = which mismatch
+# direction(s) the locus drives: AfAm->Asian only, Asian->AfAm only, or Both.
+# Loci ordered left to right by max inflation across both directions.
 # =============================================================================
 
-log_message("Generating Figure 3: Heterozygosity difference vs. LR inflation (all loci)...")
+log_message("Generating Figure 2B: Observed heterozygosity at driver loci...")
 
-# Identify driver loci for labeling (used in table too)
-driver_loci <- inflation %>%
+# Order all driver loci by max inflation across both directions
+driver_loci_ordered <- inflation %>%
   filter(
     known_relationship == "Full Siblings",
+    locus %in% driver_loci,
     ((population == "AfAm" & tested_population == "Asian") |
      (population == "Asian" & tested_population == "AfAm"))
   ) %>%
   group_by(locus) %>%
   summarise(max_median = max(median_log10_ratio), .groups = "drop") %>%
-  filter(max_median >= DRIVER_THRESHOLD) %>%
   arrange(desc(max_median)) %>%
   pull(locus)
 
-log_message(sprintf("Identified %d primary driver loci at threshold %.2f.",
-                    length(driver_loci), DRIVER_THRESHOLD))
+# Assign direction category per locus
+direction_category <- tibble(locus = driver_loci) %>%
+  mutate(
+    driver_direction = case_when(
+      locus %in% driver_loci_afam_asian & locus %in% driver_loci_asian_afam ~ "Both directions",
+      locus %in% driver_loci_afam_asian                                      ~ "AfAm\u2192Asian only",
+      TRUE                                                                    ~ "Asian\u2192AfAm only"
+    ),
+    driver_direction = factor(driver_direction,
+                              levels = c("Both directions",
+                                         "AfAm\u2192Asian only",
+                                         "Asian\u2192AfAm only"))
+  )
 
-# Build scatter data: all 29 loci
-# x = AfAm - Asian heterozygosity difference (from heteroz table)
-# y = median log10 inflation AfAm->Asian, full siblings
-fig3_data <- inflation %>%
-  filter(population == "AfAm", tested_population == "Asian",
-         known_relationship == "Full Siblings") %>%
-  select(locus, panel, median_log10_ratio) %>%
-  left_join(
-    heteroz %>% select(locus, het_AfAm = AfAm, het_Asian = Asian,
-                       het_diff = AfAm_minus_Asian),
-    by = "locus"
-  ) %>%
-  mutate(is_driver = locus %in% driver_loci)
+# Long format for plotting
+heteroz_long <- heteroz %>%
+  filter(locus %in% driver_loci_ordered) %>%
+  select(locus, AfAm, Asian, Cauc, Hispanic) %>%
+  pivot_longer(cols      = c(AfAm, Asian, Cauc, Hispanic),
+               names_to  = "population",
+               values_to = "obs_heterozygosity") %>%
+  left_join(direction_category, by = "locus") %>%
+  mutate(
+    population    = factor(population, levels = names(POPULATION_LABELS),
+                           labels = POPULATION_LABELS),
+    locus_ordered = factor(locus, levels = driver_loci_ordered)
+  )
 
-fig3 <- ggplot(fig3_data,
-               aes(x = het_diff, y = median_log10_ratio, color = panel)) +
+fig3 <- ggplot(heteroz_long,
+               aes(x     = locus_ordered,
+                   y     = obs_heterozygosity,
+                   color = population,
+                   shape = driver_direction,
+                   group = population)) +
 
-  # Reference lines
-  geom_hline(yintercept = 0,              color = "gray70", linewidth = 0.4) +
-  geom_hline(yintercept = DRIVER_THRESHOLD, color = "gray40", linewidth = 0.4,
-             linetype = "dotted") +
-  geom_vline(xintercept = 0,              color = "gray70", linewidth = 0.4) +
+  geom_line(alpha = 0.5, linewidth = 0.6) +
+  geom_point(size = 3) +
 
-  # Trend line across all loci — shows overall relationship
-  geom_smooth(aes(group = 1), method = "lm", se = TRUE,
-              color = "gray50", fill = "gray85", linewidth = 0.7,
-              show.legend = FALSE) +
-
-  # All loci
-  geom_point(size = 2.5, alpha = 0.85) +
-
-  # Label driver loci only
-  ggrepel::geom_text_repel(
-    data    = filter(fig3_data, is_driver),
-    aes(label = locus),
-    size    = 3.2,
-    color   = "gray20",
-    box.padding     = 0.4,
-    point.padding   = 0.3,
-    min.segment.len = 0.2,
-    show.legend     = FALSE
-  ) +
-
-  scale_color_manual(values = PANEL_COLORS, name = "CODIS Panel", drop = FALSE) +
-
-  scale_x_continuous(labels = scales::percent_format(accuracy = 1)) +
+  scale_color_manual(values = setNames(POPULATION_COLORS,
+                                       POPULATION_LABELS[names(POPULATION_COLORS)]),
+                     name = "Population") +
+  scale_shape_manual(values = c("Both directions"  = 16,   # filled circle
+                                "AfAm\u2192Asian only" = 17,   # filled triangle
+                                "Asian\u2192AfAm only" = 15),  # filled square
+                     name = "Driver Direction") +
+  scale_y_continuous(limits = c(0.55, 1.0),
+                     labels = scales::percent_format(accuracy = 1)) +
 
   labs(
-    title    = "Heterozygosity Difference vs. LR Inflation: All 29 Loci",
-    subtitle = paste0(
-      "x-axis: observed heterozygosity (AfAm \u2212 Asian) | ",
-      "y-axis: median log\u2081\u2080(LR_wrong / LR_correct), AfAm\u2192Asian, full siblings\n",
-      "Labeled loci exceed driver threshold (",  DRIVER_THRESHOLD, "). ",
-      "Loci with negative x show Asian is more heterozygous yet some still inflate."
-    ),
-    x = "Heterozygosity Difference (AfAm \u2212 Asian)",
-    y = "Median log\u2081\u2080(LR_wrong / LR_correct)"
+    title    = NULL,
+    subtitle = paste0("Primary driver loci (median log\u2081\u2080(LR_wrong / LR_correct) \u2265 ",
+                      DRIVER_THRESHOLD, " in AfAm \u2194 Asian full siblings)\n",
+                      "Ordered left to right by decreasing max inflation across both directions"),
+    x        = "Locus",
+    y        = "Observed Heterozygosity"
   ) +
 
   theme_publication() +
-  theme(legend.position = "right")
+  theme(
+    axis.text.x     = element_text(angle = 45, hjust = 1),
+    legend.position = "right"
+  )
 
-fig3_file <- "locus_inflation_heterozygosity.png"
-ggsave(file.path(output_dir, fig3_file),
-       plot = fig3, width = 10, height = 7, dpi = 300, bg = "white")
-log_message(paste("Figure 3 saved:", fig3_file))
+# =============================================================================
+# COMBINE 2A + 2B WITH PATCHWORK AND SAVE
+# =============================================================================
+
+log_message("Combining panels and saving Figure 2 (A/B)...")
+
+fig2_combined <- fig2 / fig3 +
+  plot_layout(heights = c(3, 2)) +
+  plot_annotation(
+    tag_levels = "A",
+    theme      = theme(plot.tag = element_text(size = 16, face = "bold"))
+  )
+
+ggsave(file.path(output_dir, fig2_file),
+       plot = fig2_combined, width = 14, height = 18, dpi = 300, bg = "white")
+log_message(paste("Figure 2 (A/B) saved:", fig2_file))
 
 # =============================================================================
 # TABLE: PRIMARY DRIVER LOCI
@@ -445,8 +480,9 @@ driver_table <- inflation_afam_asian %>%
   left_join(inflation_pc,         by = "locus") %>%
   left_join(heteroz_cols,         by = "locus") %>%
   mutate(
-    is_primary_driver = (fs_AfAm_Asian_median >= DRIVER_THRESHOLD |
-                         fs_Asian_AfAm_median >= DRIVER_THRESHOLD),
+    driver_AfAm_Asian = locus %in% driver_loci_afam_asian,
+    driver_Asian_AfAm = locus %in% driver_loci_asian_afam,
+    is_primary_driver = driver_AfAm_Asian | driver_Asian_AfAm,
     driver_threshold  = DRIVER_THRESHOLD
   ) %>%
   arrange(desc(fs_AfAm_Asian_median))
@@ -482,7 +518,7 @@ print(as.data.frame(primary))
 
 cat("\n")
 cat("OUTPUT FILES:\n")
-for (f in c(fig1_file, fig2_file, fig3_file, "primary_driver_loci_table.csv")) {
+for (f in c(fig1_file, fig2_file, "primary_driver_loci_table.csv")) {
   cat(sprintf("  %s\n", file.path(output_dir, f)))
 }
 cat("=============================================================================\n")
