@@ -1,6 +1,6 @@
 # PODFRIDGE Simulation Pipeline
 
-**Last Updated**: April 2026  
+**Last Updated**: May 2026  
 **Current Dataset**: 1,000,000 simulated pairs (500,000 related + 500,000 unrelated)
 
 ## Overview
@@ -38,6 +38,9 @@ podfridge_simulations/
 │   ├── plots_mismatched_population.R        # Population mismatch plots (NEW)
 │   ├── plots_mismatched_relationship.R      # Relationship discrimination plots (NEW)
 │   ├── plots_cutoffs_publication.R          # Classification/FPR threshold plots (NEW)
+│   ├── analyze_locus_inflation.R            # Per-locus LR inflation analysis (NEW)
+│   ├── analyze_locus_inflation.sh           # SLURM wrapper for above (NEW)
+│   ├── plots_locus_inflation.R              # Locus inflation publication plots (NEW)
 │   ├── run_statistical_tests.R              # All inferential tests (NEW)
 │   ├── run_statistical_tests.sh             # SLURM wrapper for stats (NEW)
 │   ├── simulation_analysis.sh   # SLURM wrapper for R Markdown report
@@ -81,6 +84,13 @@ podfridge_simulations/
         ├── plots_mismatched_population/     # Population mismatch plots
         ├── plots_mismatched_relationship/   # Relationship discrimination plots
         ├── plots_cutoffs/                   # Classification/FPR threshold plots
+        ├── locus_inflation/                 # Per-locus inflation analysis outputs (NEW)
+        │   ├── locus_inflation_summary.csv
+        │   ├── locus_heterozygosity_summary.csv
+        │   └── plots/
+        │       ├── locus_inflation_ranked.png
+        │       ├── locus_inflation_heatmap_heterozygosity.png
+        │       └── primary_driver_loci_table.csv
         ├── stats/                           # Statistical test results (NEW)
         │   ├── stats_matched.csv
         │   ├── stats_mismatched_population.csv
@@ -362,6 +372,28 @@ Post-Processing:
     - Validates `combined_LR_all.rds` exists before running
     - Prints next-step commands on success
 
+14. **analyze_locus_inflation.R** *(NEW)*: Per-locus LR inflation and heterozygosity analysis
+    - Called by: `analyze_locus_inflation.sh`
+    - Usage: `Rscript code/analyze_locus_inflation.R [output_dir]`
+    - Input: `output/LR/LR_<pop>_<rel>_n1000_chunk*.csv` (single-locus LR files from Step 2)
+    - **Can run in parallel with Steps 3–6** — does not depend on combined LRs or analysis outputs
+    - Parallelization: uses `mclapply` across population × relationship combinations; cores read from
+      `SLURM_CPUS_PER_TASK` (defaults to 1 when run interactively)
+    - For each combination, reads ALL chunks together so true medians are computed across all pairs
+      (not approximated from chunk-level summaries)
+    - Inflation restricted to true positives (`known_relationship == tested_relationship`);
+      heterozygosity computed from all pairs
+    - Output Files (written to `output_dir`; recommended: `output/lr_analysis_YYYYMMDD/locus_inflation`):
+      - `locus_inflation_summary.csv`: per-locus median log10(LR_wrong/LR_correct), mean, SD, 95% CI,
+        n_pairs, locus_rank; grouped by locus × population × tested_population × known_relationship
+      - `locus_heterozygosity_summary.csv`: wide format — one row per locus, one column per population;
+        includes AfAm_minus_Asian difference; weighted pooling across relationship chunks
+
+15. **analyze_locus_inflation.sh** *(NEW)*: SLURM wrapper for locus inflation analysis
+    - Usage: `sbatch code/analyze_locus_inflation.sh [output_dir]`
+    - Resources: 64 GB RAM, 2 hrs, **8 CPUs** (SLURM_CPUS_PER_TASK passed to R for parallel workers)
+    - Prints top-5 driver loci and output file sizes on success
+
 #### Publication Plotting Scripts *(ALL NEW / REDESIGNED)*
 
 > **Note**: The previous plotting scripts (`plots_matched.R`, `plots_mismatched.R`,
@@ -375,7 +407,7 @@ Post-Processing:
   Cousins=#009E73, Second Cousins=#CC79A7, Unrelated=#999999
 - Population colors: AfAm=#0072B2, Asian=#009E73, Cauc=#56B4E9, Hispanic=#CC79A7, all=#999999
 
-14. **plots_matched_publication.R** *(replaces plots_matched.R)*: Matched scenario publication figures
+16. **plots_matched_publication.R** *(replaces plots_matched.R)*: Matched scenario publication figures
     - Usage: `Rscript code/plots_matched_publication.R <input_dir> [output_dir]`
     - Input: `combined_LR_match.csv.gz` (reads directly; does not require intermediates step)
     - Dependencies: tidyverse, data.table, scales, patchwork
@@ -389,7 +421,7 @@ Post-Processing:
       relationship × loci set for the "all" population)
     - Prints console summaries for parent-child and unrelated LRs as a quick sanity check
 
-15. **plots_mismatched_population.R** *(new — replaces part of plots_mismatched.R)*: Population mismatch figures
+17. **plots_mismatched_population.R** *(new — replaces part of plots_mismatched.R)*: Population mismatch figures
     - Usage: `Rscript code/plots_mismatched_population.R <input_dir> [output_dir]`
     - Input: `mismatched_pop_robustness.csv` + `mismatched_pop_heatmap.csv` (from intermediates step)
     - Dependencies: tidyverse, data.table, scales, patchwork
@@ -401,9 +433,15 @@ Post-Processing:
         median log10(LR_wrong / LR_correct) for each true × tested population combination;
         gold border highlights diagonal (no mismatch); color scale capped at 3 (10³× inflation);
         faceted by loci set (rows) × relationship (columns); 12 × 20 inches
+    - **Figure 3** (`mismatched_population_AfAm_highlight.png`): Two-panel patchwork (A/B) highlighting
+      African American results; 12 × 12 inches, 600 DPI
+      - Panel A: Line plot of median log10(LR) for true AfAm pairs tested against all 5 frequency
+        databases; faceted by relationship (Parent-Child, Full Siblings); solid = matched, dashed = mismatched
+      - Panel B: Autosomal 29 heatmap (Parent-Child and Full Siblings only) with AfAm row outlined in red
+        and matched-frequency diagonal in gold; same blue color scale as supplement figure
     - Summary output: `mismatched_population_comparison_detailed.csv`
 
-16. **plots_mismatched_relationship.R** *(new — replaces part of plots_mismatched.R)*: Relationship discrimination figure
+18. **plots_mismatched_relationship.R** *(new — replaces part of plots_mismatched.R)*: Relationship discrimination figure
     - Usage: `Rscript code/plots_mismatched_relationship.R <input_dir> [output_dir]`
     - Input: `combined_LR_all.rds` (loads the full dataset directly)
     - Dependencies: tidyverse, data.table, scales, patchwork
@@ -416,7 +454,7 @@ Post-Processing:
       rather than the Okabe-Ito scheme; retained because it visualises continuous LR
       distributions rather than threshold-based summaries
 
-17. **plots_cutoffs_publication.R** *(replaces plots_proportion_exceeding_cutoffs.R)*: Classification performance figures
+19. **plots_cutoffs_publication.R** *(replaces plots_proportion_exceeding_cutoffs.R)*: Classification performance figures
     - Usage: `Rscript code/plots_cutoffs_publication.R <input_dir> [output_dir]`
     - Input: `proportions_with_classification.csv` (from intermediates step)
     - Dependencies: tidyverse, data.table, scales, patchwork
@@ -433,9 +471,35 @@ Post-Processing:
         population and tested hypothesis; two-panel layout (A: parent-child, B: full siblings);
         YlOrRd fill scale; 22 × 20 inches
 
+20. **plots_locus_inflation.R** *(NEW)*: Locus inflation publication figures
+    - Usage: `Rscript code/plots_locus_inflation.R <input_dir> [output_dir]`
+    - Input: `<input_dir>/locus_inflation_summary.csv`, `<input_dir>/locus_heterozygosity_summary.csv`,
+      `data/core_CODIS_loci.csv`; `input_dir` is the output of `analyze_locus_inflation.R`
+      (e.g., `output/lr_analysis_YYYYMMDD/locus_inflation`)
+    - Dependencies: tidyverse, data.table, scales, patchwork
+    - Uses Okabe-Ito population and CODIS panel color palettes consistent with other publication scripts
+    - Driver threshold: median log10(LR_wrong / LR_correct) ≥ 0.05
+    - Figures:
+      - **Figure 1** (`locus_inflation_ranked.png`): Lollipop chart of per-locus median inflation for
+        AfAm ↔ Asian mismatch; faceted by mismatch direction (rows) × relationship (columns, Full
+        Siblings and Parent-Child); points colored by CODIS panel; 95% CI segments; dashed zero
+        reference and dotted driver threshold lines; loci ordered by descending AfAm→Asian FS inflation;
+        12 × 10 inches
+      - **Figure 2 A+B combined** (`locus_inflation_heatmap_heterozygosity.png`): patchwork,
+        14 × 18 inches combined
+        - **Panel A**: Heatmap of per-locus median log10 ratio for full siblings across all true × tested
+          population combinations (off-diagonal only); loci on y-axis in same order as Fig 1;
+          white-to-navy blue gradient scale
+        - **Panel B**: Observed heterozygosity line plot for primary driver loci; one line per population
+          (Okabe-Ito colors); shape encodes driver direction (filled circle = both, triangle =
+          AfAm→Asian only, square = Asian→AfAm only); loci ordered left-to-right by decreasing max inflation
+    - Output Table: `primary_driver_loci_table.csv` — one row per locus; columns: panel, inflation metrics
+      (AfAm→Asian and Asian→AfAm median/CI for full siblings, AfAm→Asian for parent-child),
+      heterozygosity per population, AfAm_minus_Asian difference, boolean driver flags per direction
+
 #### Statistical Tests *(NEW — separated from plotting scripts)*
 
-18. **run_statistical_tests.R** *(NEW)*: All inferential tests for manuscript results section
+21. **run_statistical_tests.R** *(NEW)*: All inferential tests for manuscript results section
     - Usage: `Rscript code/run_statistical_tests.R <input_dir> [output_dir]`
     - Default output dir: `<input_dir>/stats/`
     - Dependencies: tidyverse, data.table, rstatix (kruskal_effsize)
@@ -468,14 +532,14 @@ Post-Processing:
       section, test, question, grouping, statistic, df, p_value, effect_size, effect_size_type,
       magnitude, n, note
 
-19. **run_statistical_tests.sh** *(NEW)*: SLURM wrapper for statistical tests
+22. **run_statistical_tests.sh** *(NEW)*: SLURM wrapper for statistical tests
     - Usage: `sbatch code/run_statistical_tests.sh <input_dir>`
     - Resources: 64 GB RAM, 2 hrs
     - Validates all three required input files before running:
       `combined_LR_all.rds`, `combined_LR_match.csv.gz`, `proportions_with_classification.csv`
 
 #### Statistical Report Generation
-20. **simulation_analysis.Rmd**: R Markdown report for descriptive statistical analysis
+23. **simulation_analysis.Rmd**: R Markdown report for descriptive statistical analysis
     - Location: `analysis/simulation_analysis.Rmd`
     - Dependencies: tidyverse, data.table, scales, knitr, kableExtra
     - Input: `combined_LR_all.rds`
@@ -483,13 +547,13 @@ Post-Processing:
       now focuses on descriptive summaries, classification tables, and visualizations
     - Generates: HTML report with interactive tables and plots
 
-21. **simulation_analysis.sh**: SLURM submission script for report generation
+24. **simulation_analysis.sh**: SLURM submission script for report generation
     - Usage: `sbatch code/simulation_analysis.sh <input_dir> [output_dir]`
     - Resources: 21 GB RAM, 30 min
     - Output: `simulation_analysis_YYYYMMDD.html`
 
 #### Pipeline Management Script
-22. **run_pipeline_bare.sh**: Manual step-by-step command reference
+25. **run_pipeline_bare.sh**: Manual step-by-step command reference
     - Usage: **Do NOT run as a script** - copy/paste each section manually
     - Includes verification commands for each step
     - Designed for interactive execution
@@ -525,6 +589,18 @@ bash code/lr_submission.sh
 **Computational Cost**:
 - Time: ~1 hour per file
 - Memory: ~560 MB per task
+
+#### Step 2.5: Analyze Per-Locus Inflation *(NEW — can run concurrently with Steps 3–6)*
+```bash
+sbatch code/analyze_locus_inflation.sh output/lr_analysis_YYYYMMDD/locus_inflation
+```
+**Note**: Reads `output/LR/LR_*.csv` directly from Step 2; does not depend on combined LRs or any later step. Submit this job in parallel with the combined LR step to save wall time.
+
+**Output Files** (in `output/lr_analysis_YYYYMMDD/locus_inflation/`):
+- `locus_inflation_summary.csv` → consumed by `plots_locus_inflation.R`
+- `locus_heterozygosity_summary.csv` → consumed by `plots_locus_inflation.R`
+
+**Computational Cost**: ~30–60 minutes, 64 GB RAM, 8 CPUs
 
 #### Step 3: Calculate Combined LRs
 ```bash
@@ -585,6 +661,10 @@ Rscript code/plots_mismatched_relationship.R output/lr_analysis_YYYYMMDD \
 # FPR/classification threshold plots — run interactively
 Rscript code/plots_cutoffs_publication.R output/lr_analysis_YYYYMMDD \
     output/lr_analysis_YYYYMMDD/plots_cutoffs
+
+# Per-locus inflation plots — requires Step 2.5 to be complete
+Rscript code/plots_locus_inflation.R output/lr_analysis_YYYYMMDD/locus_inflation \
+    output/lr_analysis_YYYYMMDD/locus_inflation/plots
 ```
 
 **Matched Plots** (`plots_matched/`):
@@ -595,6 +675,7 @@ Rscript code/plots_cutoffs_publication.R output/lr_analysis_YYYYMMDD \
 **Population Mismatch Plots** (`plots_mismatched_population/`):
 - `mismatched_population_robustness.png` (line plots, matched vs. mismatched freq)
 - `mismatched_population_supp_heatmap.png` (heatmap of LR inflation)
+- `mismatched_population_AfAm_highlight.png` (AfAm-focused two-panel figure)
 - `mismatched_population_comparison_detailed.csv`
 
 **Relationship Discrimination Plots** (`plots_mismatched_relationship/`):
@@ -604,6 +685,11 @@ Rscript code/plots_cutoffs_publication.R output/lr_analysis_YYYYMMDD \
 - `cutoff_classification_0.01fpr_29loci.png` (main text, single threshold)
 - `cutoff_classification_fpr_29loci.png` (supplement, all thresholds)
 - `cutoff_supp_heatmap_fp_rates.png` (supplement, FPR heatmap)
+
+**Locus Inflation Plots** (`locus_inflation/plots/`):
+- `locus_inflation_ranked.png` (lollipop chart, AfAm↔Asian, FS and PC)
+- `locus_inflation_heatmap_heterozygosity.png` (combined A/B: heatmap + het line plot)
+- `primary_driver_loci_table.csv`
 
 #### Step 6: Run Statistical Tests *(NEW STEP)*
 ```bash
@@ -702,6 +788,12 @@ sbatch code/run_statistical_tests.sh output/lr_analysis_test
 - `mismatched_pop_heatmap.csv`: Median log10(LR_wrong/LR_correct) per true × tested population cell;
   includes `is_diagonal` flag
 
+**Locus Inflation Outputs** *(new, in `locus_inflation/` subdirectory)*:
+- `locus_inflation_summary.csv`: Per-locus median log10(LR_wrong/LR_correct), mean, SD, 95% CI,
+  n_pairs, locus_rank; grouped by locus × population × tested_population × known_relationship
+- `locus_heterozygosity_summary.csv`: Observed heterozygosity per locus per population (wide format);
+  one row per locus, one column per population; includes `AfAm_minus_Asian` difference column
+
 **Statistical Test Results** *(new, in `stats/` subdirectory)*:
 - `stats_matched.csv`: KW + Spearman tests (Tests 1–3)
 - `stats_mismatched_population.csv`: Wilcoxon + linear model tests (Tests 4–5)
@@ -737,7 +829,9 @@ sbatch code/run_statistical_tests.sh output/lr_analysis_test
 - **Combined LR**: ~1 minute, ~95 MB RAM per task
 - **Analysis**: ~20 minutes, 96 GB RAM (single task)
 - **Prepare Intermediates**: ~10 minutes, 48 GB RAM
+- **Locus Inflation Analysis**: ~30–60 minutes, 64 GB RAM, 8 CPUs *(runs in parallel with Steps 3–6)*
 - **Plotting**: ~15–20 minutes total, interactive
+- **Locus Inflation Plotting**: ~5 minutes, interactive
 - **Statistical Tests**: ~30–60 minutes, 64 GB RAM
 - **Statistical Report**: ~5 minutes, 10 GB RAM
 
@@ -754,11 +848,13 @@ sbatch code/run_statistical_tests.sh output/lr_analysis_test
 - Step 3 (Combined LR): ~1 minute wall time
 - Step 4 (Analysis): ~20 minutes
 - Step 4.5 (Prepare Intermediates): ~10 minutes
+- Step 2.5 (Locus Inflation Analysis): ~30–60 min *(overlaps Steps 3–6)*
 - Step 5 (Plotting): ~15–20 minutes (interactive)
+- Step 5 (Locus Inflation Plotting): ~5 minutes (interactive, after Step 2.5)
 - Step 6 (Statistical Tests): ~30–60 minutes
 - Step 7 (Report): ~10 minutes
-- **Total**: ~6 hours from start to final outputs
+- **Total**: ~6 hours from start to final outputs (Step 2.5 adds no extra wall time)
 
 ---
 
-**Last Updated**: April 10, 2026
+**Last Updated**: May 28, 2026
