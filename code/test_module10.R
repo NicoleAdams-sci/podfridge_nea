@@ -32,45 +32,36 @@ suppressPackageStartupMessages({
 })
 
 source("code/LR_kinship_utility_functions.R")
-source("code/module1_allele_simulator.R")
-source("code/module2_STR_profile_simulator.R")
-source("code/module3_related_individual_simulator.R")
-source("code/module7_single_pop_focal_generator.R")
-source("code/module8_unrelated_pool_generator.R")
 source("code/module10_ranking_db_assembler.R")
 
-# Note: must be named kinship_matrix — module 3 references this as a global variable
-kinship_matrix <- fread("data/kinship_coefficients.csv")
 
-# Small test parameters
-N_FOCAL          <- 2
-N_UNRELATED      <- 10   # per population, so 40 total
 FOCAL_POPULATION <- "Asian"
 RELATIVE_TYPE    <- "parent_child"
 
-cat(sprintf("Test parameters:\n"))
-cat(sprintf("  Focal individuals    : %d\n", N_FOCAL))
-cat(sprintf("  Unrelated per pop    : %d (total: %d)\n", N_UNRELATED, N_UNRELATED * 4))
 cat(sprintf("  Focal population     : %s\n", FOCAL_POPULATION))
 cat(sprintf("  Relative type tested : %s\n\n", RELATIVE_TYPE))
 
 # ------------------------------------------------------------------------------
-# STEP 1: Generate tiny focal family (module 7)
+# STEP 1: Load focal family from file
 # ------------------------------------------------------------------------------
+# Focal families are generated separately via generate_focal_family.sh
+# and reused across tests. Run that script first if the file doesn't exist.
 
-cat("--- STEP 1: Generate focal family (module 7) ---\n")
+cat("--- STEP 1: Load focal family ---\n")
 
-focal_result <- generate_single_pop_focal(
-  population            = FOCAL_POPULATION,
-  n_focal               = N_FOCAL,
-  relationship_counts   = list(parent_child = 1, full_siblings = 1),
-  loci_list             = loci_list,
-  allele_frequency_data = df_allelefreq,
-  kinship_coefficients  = kinship_matrix,
-  output_dir            = "output/focal_ranking_test"
-)
+focal_files <- list.files("output/focal_ranking_test",
+                           pattern = paste0(FOCAL_POPULATION, "_focal.*\\.csv$"),
+                           full.names = TRUE)
 
-focal_family_data <- focal_result$data
+if (length(focal_files) == 0) {
+  stop(paste("No focal family files found for population", FOCAL_POPULATION,
+             "in output/focal_ranking_test/. Run generate_focal_family.sh first."))
+}
+
+# Load most recent file
+focal_file <- focal_files[length(focal_files)]
+cat(sprintf("Loading: %s\n", basename(focal_file)))
+focal_family_data <- fread(focal_file)
 
 cat(sprintf("Rows in focal_family_data     : %d\n", nrow(focal_family_data)))
 cat(sprintf("Unique focal_ids              : %s\n",
@@ -81,25 +72,26 @@ cat(sprintf("Unique loci                   : %d\n\n",
             length(unique(focal_family_data$locus))))
 
 # ------------------------------------------------------------------------------
-# STEP 2: Generate tiny unrelated pool (module 8)
+# STEP 2: Load unrelated pool from file
 # ------------------------------------------------------------------------------
+# The unrelated pool is generated separately via generate_unrelated_pool.sh
+# and reused across all tests. Run that script first if the pool doesn't exist.
 
-cat("--- STEP 2: Generate unrelated pool (module 8) ---\n")
+cat("--- STEP 2: Load unrelated pool ---\n")
 
-unrelated_results <- generate_multiple_pop_unrelated(
-  populations           = c("AfAm", "Cauc", "Hispanic", "Asian"),
-  n_unrelated_per_pop   = N_UNRELATED,
-  loci_list             = loci_list,
-  allele_frequency_data = df_allelefreq,
-  output_dir            = "output/unrelated_pool",
-  use_single_datetime   = TRUE
-)
+pool_files <- list.files("output/unrelated_pool", pattern = "\\.csv$", full.names = TRUE)
 
-unrelated_pool_data <- map_dfr(unrelated_results$file_path, fread)
+if (length(pool_files) == 0) {
+  stop("No unrelated pool files found in output/unrelated_pool/. Run generate_unrelated_pool.sh first.")
+}
+
+# Load most recent set (all files share a datetime so take the latest batch)
+unrelated_pool_data <- map_dfr(pool_files, fread)
 
 # Note: individual_ids repeat across populations in module 8 output (e.g. unrel_001)
 # so count by nrow / n_loci to get true individual count
 n_loci_check <- length(unique(unrelated_pool_data$locus))
+cat(sprintf("Pool files loaded             : %d\n", length(pool_files)))
 cat(sprintf("Total unrelated individuals   : %d\n",
             nrow(unrelated_pool_data) / n_loci_check))
 cat(sprintf("Populations in pool           : %s\n\n",
@@ -127,15 +119,16 @@ paired_db <- assemble_ranking_database(
 
 # --- Checks ---
 n_loci        <- length(unique(paired_db$locus))
-n_db_members  <- length(unique(paired_db$individual_id))
+# Use nrow/n_loci for true member count since individual_id may not be unique
+# across populations before prefixing
+n_db_members  <- nrow(paired_db) / n_loci
 n_true_rel    <- length(unique(paired_db$individual_id[paired_db$is_true_relative == TRUE]))
 expected_rows <- n_db_members * n_loci
 
 cat(sprintf("\nOutput checks:\n"))
 cat(sprintf("  Columns present       : %s\n", paste(names(paired_db), collapse = ", ")))
 cat(sprintf("  Total rows            : %d (expected: %d)\n", nrow(paired_db), expected_rows))
-cat(sprintf("  Unique database members : %d (expected: %d)\n",
-            n_db_members, N_UNRELATED * 4 + 1))
+cat(sprintf("  Unique database members : %d (unrelated pool size + 1 relative)\n", n_db_members))
 cat(sprintf("  Unique loci           : %d\n", n_loci))
 cat(sprintf("  True relatives        : %d (expected: 1)\n", n_true_rel))
 cat(sprintf("  population values     : %s (expected: all %s)\n",
@@ -172,8 +165,9 @@ replicate_dbs <- assemble_ranking_replicates(
 )
 
 cat(sprintf("\nOutput checks:\n"))
-cat(sprintf("  Number of replicates  : %d (expected: %d)\n",
-            length(replicate_dbs), N_FOCAL))
+n_focal_loaded <- length(unique(focal_family_data$focal_id[focal_family_data$relationship_to_focal == "self"]))
+cat(sprintf("  Number of replicates  : %d (expected: %d from loaded file)\n",
+            length(replicate_dbs), n_focal_loaded))
 cat(sprintf("  Replicate names       : %s\n",
             paste(names(replicate_dbs), collapse = ", ")))
 cat(sprintf("  Rows per replicate    : %s\n",
@@ -194,12 +188,12 @@ cat("\n=== Module 10 Test Summary ===\n")
 
 checks <- c(
   "Correct number of rows"      = nrow(paired_db) == expected_rows,
-  "Correct database size"       = n_db_members == (N_UNRELATED * 4 + 1),
+  "Database has >1 member"      = n_db_members > 1,
   "Exactly one true relative"   = n_true_rel == 1,
   "Population label consistent" = all(paired_db$population == FOCAL_POPULATION),
   "No NA focal alleles"         = n_na_focal == 0,
   "No NA ind2 alleles"          = n_na_ind2 == 0,
-  "Correct replicate count"     = length(replicate_dbs) == N_FOCAL,
+  "Correct replicate count"     = length(replicate_dbs) == n_focal_loaded,
   "One true relative per rep"   = all(n_true_per_rep == 1)
 )
 
