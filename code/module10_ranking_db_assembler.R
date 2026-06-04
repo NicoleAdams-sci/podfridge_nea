@@ -128,11 +128,10 @@ assemble_ranking_database <- function(focal_family_data,
   # --- Combine relative + unrelated into one database ---
   database <- bind_rows(relative_genotype, unrelated_genotype)
 
-  n_database <- length(unique(database$individual_id))
+  n_database  <- length(unique(database$individual_id))
+  n_unrelated <- n_database - 1  # subtract the one true relative
   cat(sprintf("Database assembled: %d individuals (%d unrelated + 1 %s)\n",
-              n_database,
-              length(unique(unrelated_pool_data$individual_id)),
-              relative_type))
+              n_database, n_unrelated, relative_type))
 
   # --- Join focal genotype against every database member ---
   # One row per locus per database member
