@@ -10,23 +10,19 @@
 #SBATCH --error=logs/unrelated_pool_%j.err
 
 # ==============================================================================
-# Generate Unrelated Pool — Shell Wrapper
+# Generate Unrelated Pool / Database — Shell Wrapper
 # ==============================================================================
 #
-# Generates a fixed pool of unrelated individuals across all four populations,
-# saved to output/unrelated_pool/. Run once and reuse across all ranking tests.
-#
 # Usage:
-#   sbatch code/generate_unrelated_pool.sh                     # all defaults
-#   sbatch code/generate_unrelated_pool.sh 250                 # 250 per pop (test)
-#   sbatch code/generate_unrelated_pool.sh 100000              # full run
-#   bash code/generate_unrelated_pool.sh 250                   # local test
+#   sbatch code/generate_unrelated_pool.sh all 100000
+#   sbatch code/generate_unrelated_pool.sh single 100000 Cauc
+#   sbatch code/generate_unrelated_pool.sh mixed-proportions 100000 AfAm=0.15,Cauc=0.55,Hispanic=0.20,Asian=0.10
+#   sbatch code/generate_unrelated_pool.sh mixed-counts AfAm=15000,Cauc=55000,Hispanic=20000,Asian=10000
 #
-# Arguments (optional):
-#   $1 : N_UNRELATED_PER_POP — unrelated individuals per population (default: 250)
-#
-# Output:
-#   output/unrelated_pool/<population>_unrelated_<datetime>.csv (one per population)
+# Local test:
+#   bash code/generate_unrelated_pool.sh all 1000
+#   bash code/generate_unrelated_pool.sh single 1000 Cauc
+#   bash code/generate_unrelated_pool.sh mixed-proportions 1000 AfAm=0.15,Cauc=0.55,Hispanic=0.20,Asian=0.10
 # ==============================================================================
 
 mkdir -p logs
@@ -34,22 +30,25 @@ mkdir -p output/unrelated_pool
 
 module load Rtidyverse
 
-N_UNRELATED_PER_POP=${1:-250}
+# Default behavior if no arguments supplied.
+# You can change this default if desired.
+if [ "$#" -eq 0 ]; then
+    set -- all 250
+fi
 
 echo "============================================================="
-echo "  Generate Unrelated Pool"
+echo "  Generate Unrelated Database"
 echo "============================================================="
-echo "  Unrelated per population : ${N_UNRELATED_PER_POP}"
-echo "  Total individuals        : $(( N_UNRELATED_PER_POP * 4 ))"
-echo "  Output directory         : output/unrelated_pool/"
-echo "  Started at               : $(date)"
+echo "  Arguments        : $@"
+echo "  Output directory : output/unrelated_pool/"
+echo "  Started at       : $(date)"
 echo "============================================================="
 
-Rscript code/generate_unrelated_pool.R ${N_UNRELATED_PER_POP}
+Rscript code/generate_unrelated_pool.R "$@"
 
 if [ $? -eq 0 ]; then
-    echo "SUCCESS: Unrelated pool generated at $(date)"
+    echo "SUCCESS: Unrelated database generated at $(date)"
 else
-    echo "ERROR: Unrelated pool generation failed at $(date)"
+    echo "ERROR: Unrelated database generation failed at $(date)"
     exit 1
 fi
