@@ -12,6 +12,12 @@
 #     A)    All mismatch directions — heatmap of per-locus median log10 ratio
 #           for full siblings across all true x tested population combinations.
 #     B)    Observed heterozygosity for primary driver loci by population.
+#
+#   In all figures loci are arranged along their axis by nested CODIS set
+#   (Core 13, then the additions that make Identifiler 15, Expanded 20,
+#   Supplementary, then Autosomal-29-only loci), with separator lines and
+#   group brackets/strips marking each set. Within a set, loci are ordered by
+#   AfAm->Asian full-sibling inflation (see WITHIN_GROUP_ORDER).
 #   Table:  Primary driver loci CSV — loci with median log10 ratio > threshold
 #           in at least one key mismatch direction, annotated with panel
 #           membership and heterozygosity.
@@ -81,14 +87,29 @@ POPULATION_LABELS <- c(
 
 # CODIS panel colors — from least to most extended
 PANEL_ORDER <- c("Core 13", "Identifiler 15", "Expanded 20",
-                 "Supplementary", "Autosomal 29 only")
+                 "Supplementary", "Autosomal 29")
 PANEL_COLORS <- c(
   "Core 13"          = "#E69F00",
   "Identifiler 15"   = "#56B4E9",
   "Expanded 20"      = "#009E73",
   "Supplementary"    = "#CC79A7",
-  "Autosomal 29 only"= "#D55E00"
+  "Autosomal 29"= "#D55E00"
 )
+
+# Short panel labels for compact group brackets on the figures
+PANEL_SHORT <- c(
+  "Core 13"           = "Core 13",
+  "Identifiler 15"    = "Ident. 15",
+  "Expanded 20"       = "Exp. 20",
+  "Supplementary"     = "Suppl.",
+  "Autosomal 29" = "Auto. 29"
+)
+
+# How to order loci *within* each CODIS group along the axis:
+#   "inflation"  -> descending AfAm->Asian full-sib inflation (keeps driver rank
+#                   visible inside each set; this is the default)
+#   "alpha"      -> alphabetical by locus name
+WITHIN_GROUP_ORDER <- "inflation"
 
 # Inflation threshold for "primary driver" classification
 DRIVER_THRESHOLD <- 0.05  # median log10 ratio
@@ -110,6 +131,26 @@ theme_publication <- function(base_size = 14) {
       panel.grid.major = element_line(color = "gray90", linewidth = 0.3),
       plot.margin      = margin(10, 10, 10, 10)
     )
+}
+
+# -----------------------------------------------------------------------------
+# axis_group_geometry()
+# Given the loci as they appear along an axis (position 1 = first level) and a
+# named vector mapping locus -> CODIS panel, return one row per contiguous
+# CODIS group with its start / end / midpoint position. Used to draw the
+# separator lines and the group brackets/labels.
+# -----------------------------------------------------------------------------
+axis_group_geometry <- function(levels_in_order, panel_map) {
+  panels <- as.character(panel_map[levels_in_order])
+  r      <- rle(panels)
+  ends   <- cumsum(r$lengths)
+  starts <- ends - r$lengths + 1L
+  tibble::tibble(
+    panel = r$values,
+    start = starts,
+    end   = ends,
+    mid   = (starts + ends) / 2
+  )
 }
 
 # =============================================================================
@@ -146,7 +187,7 @@ panel_lookup <- codis %>%
       identifiler_15 == 1 ~ "Identifiler 15",
       expanded_20    == 1 ~ "Expanded 20",
       supplementary  == 1 ~ "Supplementary",
-      TRUE                ~ "Autosomal 29 only"
+      TRUE                ~ "Autosomal 29"
     ),
     panel = factor(panel, levels = PANEL_ORDER)
   ) %>%
@@ -159,7 +200,7 @@ if (length(missing_loci) > 0) {
   panel_lookup <- bind_rows(
     panel_lookup,
     data.frame(locus = missing_loci,
-               panel = factor("Autosomal 29 only", levels = PANEL_ORDER))
+               panel = factor("Autosomal 29", levels = PANEL_ORDER))
   )
 }
 
@@ -194,21 +235,73 @@ fig1_data <- inflation %>%
                         "True Asian, tested with\nAfAm frequencies")
   )
 
-# Rank loci within each direction x relationship panel by median inflation
-# Use full_siblings AfAm->Asian as the canonical rank order
-canonical_rank <- fig1_data %>%
-  filter(direction == "True AfAm, tested with\nAsian frequencies",
-         known_relationship == "Full Siblings") %>%
-  arrange(desc(median_log10_ratio)) %>%
-  mutate(locus_ordered = factor(locus, levels = rev(locus)))
+# -----------------------------------------------------------------------------
+# CANONICAL LOCUS ORDER — nested CODIS sets
+#
+# Loci are grouped along the axis following the nested CODIS build:
+#   Core 13  ->  (+) Identifiler 15  ->  (+) Expanded 20  ->
+#   (+) Supplementary  ->  Autosomal 29
+#
+# Within each CODIS group loci are ordered by WITHIN_GROUP_ORDER:
+#   "inflation" (default) uses the canonical AfAm->Asian full-sib inflation so
+#   the driver ranking is still visible inside each set; loci without a value
+#   fall to the end of their group. "alpha" sorts by locus name.
+#
+# codis_order_top_to_bottom is the intended top-to-bottom reading order, with
+# Core 13 at the TOP. Because ggplot draws the first factor level at the bottom
+# of a y axis, locus_order (used by Figs 1 and 2A) is its reverse.
+# -----------------------------------------------------------------------------
 
-locus_order <- levels(canonical_rank$locus_ordered)
+# Per-locus value used to order loci within a CODIS group
+within_group_rank <- inflation %>%
+  filter(known_relationship == "Full Siblings",
+         population == "AfAm", tested_population == "Asian") %>%
+  select(locus, rank_val = median_log10_ratio)
+
+codis_order_top_to_bottom <- panel_lookup %>%
+  distinct(locus, panel) %>%
+  filter(locus %in% all_loci) %>%                        # only loci present in data
+  left_join(within_group_rank, by = "locus") %>%
+  mutate(
+    panel    = factor(panel, levels = PANEL_ORDER),
+    rank_val = if (WITHIN_GROUP_ORDER == "alpha") 0 else replace_na(rank_val, -Inf)
+  ) %>%
+  arrange(panel, desc(rank_val), locus) %>%
+  pull(locus)
+
+# locus -> panel lookup as a named vector, for separators / brackets
+locus_panel <- panel_lookup %>%
+  distinct(locus, panel) %>%
+  filter(locus %in% all_loci) %>%
+  deframe()
+
+# Factor levels for the y axes (Core 13 ends up at the top)
+locus_order <- rev(codis_order_top_to_bottom)
 
 fig1_data <- fig1_data %>%
-  mutate(locus_ordered = factor(locus, levels = locus_order))
+  mutate(locus_ordered = factor(locus, levels = locus_order),
+         ypos          = as.integer(locus_ordered))  # numeric y for brackets
+
+# CODIS group geometry along the y axis (positions match locus_order)
+fig1_groups     <- axis_group_geometry(locus_order, locus_panel)
+fig1_boundaries <- head(fig1_groups$end, -1) + 0.5
+
+# Right-side group brackets are drawn only in the rightmost relationship facet
+rightmost_rel <- tail(levels(droplevels(fig1_data$known_relationship)), 1)
+x_rng  <- range(c(fig1_data$ci_lower, fig1_data$ci_upper,
+                  fig1_data$median_log10_ratio), na.rm = TRUE)
+x_span <- diff(x_rng); if (!is.finite(x_span) || x_span == 0) x_span <- 1
+x_br   <- x_rng[2] + 0.03 * x_span   # vertical bracket bar
+x_tick <- 0.012 * x_span             # bracket tick length
+x_txt  <- x_rng[2] + 0.055 * x_span  # label position
+
+fig1_brackets <- tidyr::crossing(fig1_groups,
+                                  direction = unique(fig1_data$direction)) %>%
+  mutate(known_relationship = factor(rightmost_rel,
+                                     levels = levels(fig1_data$known_relationship)))
 
 fig1 <- ggplot(fig1_data,
-               aes(x = median_log10_ratio, y = locus_ordered, color = panel)) +
+               aes(x = median_log10_ratio, y = ypos, color = panel)) +
 
   # Zero reference line
   geom_vline(xintercept = 0, color = "gray60", linewidth = 0.4, linetype = "dashed") +
@@ -217,23 +310,47 @@ fig1 <- ggplot(fig1_data,
   geom_vline(xintercept = DRIVER_THRESHOLD, color = "gray40", linewidth = 0.4,
              linetype = "dotted") +
 
+  # CODIS group separators
+  geom_hline(yintercept = fig1_boundaries, color = "gray75", linewidth = 0.4) +
+
   # CI segment
   geom_segment(aes(x = ci_lower, xend = ci_upper,
-                   y = locus_ordered, yend = locus_ordered),
+                   y = ypos, yend = ypos),
                alpha = 0.3, linewidth = 0.6) +
 
   # Point
   geom_point(size = 2.5) +
+
+  # CODIS group brackets + labels (rightmost facet only, drawn in the margin)
+  geom_segment(data = fig1_brackets, inherit.aes = FALSE,
+               aes(y = start - 0.4, yend = end + 0.4),
+               x = x_br, xend = x_br, color = "gray30", linewidth = 0.5) +
+  geom_segment(data = fig1_brackets, inherit.aes = FALSE,
+               aes(y = start - 0.4, yend = start - 0.4),
+               x = x_br - x_tick, xend = x_br, color = "gray30", linewidth = 0.5) +
+  geom_segment(data = fig1_brackets, inherit.aes = FALSE,
+               aes(y = end + 0.4, yend = end + 0.4),
+               x = x_br - x_tick, xend = x_br, color = "gray30", linewidth = 0.5) +
+  geom_text(data = fig1_brackets, inherit.aes = FALSE,
+            aes(y = mid, label = panel),
+            x = x_txt, hjust = 0, size = 3.0, color = "gray20") +
 
   facet_grid(direction ~ known_relationship) +
 
   scale_color_manual(values = PANEL_COLORS, name = "CODIS Panel",
                      drop = FALSE) +
 
+  scale_y_continuous(breaks = seq_along(locus_order), labels = locus_order,
+                     expand = expansion(add = 0.6)) +
+
+  coord_cartesian(xlim = c(x_rng[1] - 0.02 * x_span, x_rng[2] + 0.02 * x_span),
+                  clip = "off") +
+
   labs(
     title    = "Per-Locus LR Inflation Under African American \u2194 Asian Frequency Mismatch",
     subtitle = paste0("Median log\u2081\u2080(LR_wrong / LR_correct) per locus | True positives only\n",
-                      "Dotted line = driver threshold (", DRIVER_THRESHOLD, ")"),
+                      "Loci grouped by nested CODIS set (Core 13 at top) | ",
+                      "dotted line = driver threshold (", DRIVER_THRESHOLD, ")"),
     x        = "Median log\u2081\u2080(LR_wrong / LR_correct)",
     y        = NULL
   ) +
@@ -241,7 +358,8 @@ fig1 <- ggplot(fig1_data,
   theme_publication() +
   theme(
     legend.position = "right",
-    axis.text.y     = element_text(size = rel(0.75))
+    axis.text.y     = element_text(size = rel(0.75)),
+    plot.margin     = margin(10, 115, 10, 10)   # room for right-side brackets
   )
 
 fig1_file <- "locus_inflation_ranked.png"
@@ -297,8 +415,9 @@ fig2_data <- inflation %>%
                         labels = POPULATION_LABELS),
     tested_pop = factor(tested_population, levels = names(POPULATION_LABELS),
                         labels = POPULATION_LABELS),
-    # Use same factor levels as Fig 1 so F13B appears at top in both figures
-    locus_ordered = factor(locus, levels = locus_order)
+    # Same locus order as Fig 1; the nested CODIS set becomes a facet strip
+    locus_ordered = factor(locus, levels = locus_order),
+    panel         = factor(panel, levels = PANEL_ORDER)
   )
 
 fig2 <- ggplot(fig2_data,
@@ -307,7 +426,9 @@ fig2 <- ggplot(fig2_data,
 
   geom_tile(color = "white", linewidth = 0.4) +
 
-  facet_wrap(~ true_pop, nrow = 1) +
+  # Rows = nested CODIS set (labelled strip acts as the group bracket);
+  # free/space y keeps tiles uniform and sizes each set by its locus count.
+  facet_grid(panel ~ true_pop, scales = "free_y", space = "free_y") +
 
   scale_fill_gradientn(
     colors = c("white", "#c6dbef", "#6baed6", "#2166ac", "#08306b"),
@@ -318,7 +439,7 @@ fig2 <- ggplot(fig2_data,
 
   labs(
     title    = "Per-Locus LR Inflation Across All Population Mismatch Directions",
-    subtitle = "Full siblings | Each cell = one locus x tested frequency database combination",
+    subtitle = "Full siblings | Loci grouped by nested CODIS set | each cell = one locus x tested frequency database",
     x        = "Tested Population Frequencies",
     y        = NULL
   ) +
@@ -328,6 +449,8 @@ fig2 <- ggplot(fig2_data,
     axis.text.x     = element_text(angle = 45, hjust = 1, size = rel(0.8)),
     axis.text.y     = element_text(size  = rel(0.7)),
     panel.grid      = element_blank(),
+    panel.spacing.y = unit(4, "pt"),
+    strip.text.y    = element_text(angle = 0, size = rel(0.75)),
     legend.position = "right"
   )
 
@@ -336,25 +459,17 @@ fig2_file <- "locus_inflation_heatmap_heterozygosity.png"  # combined output
 # =============================================================================
 # FIGURE 2B: OBSERVED HETEROZYGOSITY — all driver loci, single panel
 #
-# All 17 driver loci shown. Color = population. Shape = which mismatch
+# All driver loci shown. Color = population. Shape = which mismatch
 # direction(s) the locus drives: AfAm->Asian only, Asian->AfAm only, or Both.
-# Loci ordered left to right by max inflation across both directions.
+# Loci ordered left to right by nested CODIS set (Core 13 first).
 # =============================================================================
 
 log_message("Generating Figure 2B: Observed heterozygosity at driver loci...")
 
-# Order all driver loci by max inflation across both directions
-driver_loci_ordered <- inflation %>%
-  filter(
-    known_relationship == "Full Siblings",
-    locus %in% driver_loci,
-    ((population == "AfAm" & tested_population == "Asian") |
-     (population == "Asian" & tested_population == "AfAm"))
-  ) %>%
-  group_by(locus) %>%
-  summarise(max_median = max(median_log10_ratio), .groups = "drop") %>%
-  arrange(desc(max_median)) %>%
-  pull(locus)
+# Order driver loci by nested CODIS set (Core 13 leftmost), consistent with
+# the canonical order used in Figs 1 and 2A.
+driver_loci_ordered <- codis_order_top_to_bottom[
+  codis_order_top_to_bottom %in% driver_loci]
 
 # Assign direction category per locus
 direction_category <- tibble(locus = driver_loci) %>%
@@ -381,18 +496,46 @@ heteroz_long <- heteroz %>%
   mutate(
     population    = factor(population, levels = names(POPULATION_LABELS),
                            labels = POPULATION_LABELS),
-    locus_ordered = factor(locus, levels = driver_loci_ordered)
+    locus_ordered = factor(locus, levels = driver_loci_ordered),
+    xpos          = as.integer(locus_ordered)   # numeric x for brackets
   )
 
+# CODIS group geometry along the x axis (positions match driver_loci_ordered)
+fig3_groups     <- axis_group_geometry(driver_loci_ordered, locus_panel)
+fig3_boundaries <- head(fig3_groups$end, -1) + 0.5
+fig3_brackets   <- fig3_groups %>%
+  mutate(label = PANEL_SHORT[panel])
+
+y_br  <- 1.035   # bracket bar height (inside an expanded header band, not the margin)
+y_tk  <- 0.012   # bracket tick depth
+y_txt <- 1.05    # label baseline
+
 fig3 <- ggplot(heteroz_long,
-               aes(x     = locus_ordered,
+               aes(x     = xpos,
                    y     = obs_heterozygosity,
                    color = population,
                    shape = driver_direction,
                    group = population)) +
 
+  # CODIS group separators
+  geom_vline(xintercept = fig3_boundaries, color = "gray80", linewidth = 0.4) +
+
   geom_line(alpha = 0.5, linewidth = 0.6) +
   geom_point(size = 3) +
+
+  # CODIS group brackets + labels above the panel
+  geom_segment(data = fig3_brackets, inherit.aes = FALSE,
+               aes(x = start - 0.4, xend = end + 0.4), y = y_br, yend = y_br,
+               color = "gray30", linewidth = 0.5) +
+  geom_segment(data = fig3_brackets, inherit.aes = FALSE,
+               aes(x = start - 0.4, xend = start - 0.4),
+               y = y_br, yend = y_br - y_tk, color = "gray30", linewidth = 0.5) +
+  geom_segment(data = fig3_brackets, inherit.aes = FALSE,
+               aes(x = end + 0.4, xend = end + 0.4),
+               y = y_br, yend = y_br - y_tk, color = "gray30", linewidth = 0.5) +
+  geom_text(data = fig3_brackets, inherit.aes = FALSE,
+            aes(x = mid, label = label), y = y_txt,
+            vjust = 0, size = 3.0, color = "gray20") +
 
   scale_color_manual(values = setNames(POPULATION_COLORS,
                                        POPULATION_LABELS[names(POPULATION_COLORS)]),
@@ -401,14 +544,21 @@ fig3 <- ggplot(heteroz_long,
                                 "AfAm\u2192Asian only" = 17,   # filled triangle
                                 "Asian\u2192AfAm only" = 15),  # filled square
                      name = "Driver Direction") +
-  scale_y_continuous(limits = c(0.55, 1.0),
+  scale_x_continuous(breaks = seq_along(driver_loci_ordered),
+                     labels = driver_loci_ordered,
+                     expand = expansion(add = 0.6)) +
+  scale_y_continuous(breaks = seq(0.6, 1.0, 0.1),
                      labels = scales::percent_format(accuracy = 1)) +
+
+  # Expand the upper limit to open a header band above 100% for the CODIS
+  # brackets, so they sit inside the panel and clear of the subtitle.
+  coord_cartesian(ylim = c(0.55, 1.09), clip = "off") +
 
   labs(
     title    = NULL,
     subtitle = paste0("Primary driver loci (median log\u2081\u2080(LR_wrong / LR_correct) \u2265 ",
                       DRIVER_THRESHOLD, " in AfAm \u2194 Asian full siblings)\n",
-                      "Ordered left to right by decreasing max inflation across both directions"),
+                      "Ordered by nested CODIS set"),
     x        = "Locus",
     y        = "Observed Heterozygosity"
   ) +
@@ -416,7 +566,8 @@ fig3 <- ggplot(heteroz_long,
   theme_publication() +
   theme(
     axis.text.x     = element_text(angle = 45, hjust = 1),
-    legend.position = "right"
+    legend.position = "right",
+    plot.margin     = margin(10, 10, 10, 10)
   )
 
 # =============================================================================
