@@ -42,7 +42,8 @@ library(data.table)
 #' @param save_results Logical, whether to save results to CSV (default TRUE).
 #' @return List with two data frames:
 #'         $outcomes  — one row per replicate x loci_set x tested_relationship
-#'                      x tested_population, with rank and in_top_n
+#'                      x tested_population, with rank, tied_group_size, and
+#'                      in_top_n
 #'         $summary   — aggregated proportion in top_n across replicates
 
 record_ranking_outcomes <- function(lr_results,
@@ -73,7 +74,14 @@ record_ranking_outcomes <- function(lr_results,
     group_by(focal_id, loci_set, tested_relationship, tested_population) |>
     mutate(
       rank = rank(-combined_LR, ties.method = "average"),
-      n_database = n_distinct(individual_id)
+      n_database = n_distinct(individual_id),
+      # How many candidates (unrelateds + the true relative itself) landed
+      # at EXACTLY the same combined_LR as the true relative in this group.
+      # A large tied_group_size (common when combined_LR == 0, e.g. testing
+      # a full/half-sib true relative against the parent_child hypothesis,
+      # which has k0 = 0) means "rank" is an average over a big block of
+      # indistinguishable candidates, not a real, singular position.
+      tied_group_size = sum(combined_LR == combined_LR[is_true_relative][1], na.rm = TRUE)
     ) |>
     ungroup() |>
     filter(is_true_relative == TRUE) |>
@@ -83,7 +91,7 @@ record_ranking_outcomes <- function(lr_results,
     ) |>
     select(focal_id, loci_set, tested_relationship, tested_population,
            known_relationship, individual_id, combined_LR,
-           rank, n_database, in_top_n, top_n_used)
+           rank, n_database, tied_group_size, in_top_n, top_n_used)
 
   # --- Summarize across replicates ---
   summary_results <- outcomes |>
@@ -97,6 +105,8 @@ record_ranking_outcomes <- function(lr_results,
       sd_rank           = sd(rank),
       min_rank          = min(rank),
       max_rank          = max(rank),
+      mean_tied_group_size   = mean(tied_group_size),
+      median_tied_group_size = median(tied_group_size),
       top_n_used        = first(top_n_used),
       .groups = "drop"
     )
