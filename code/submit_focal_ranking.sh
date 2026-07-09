@@ -5,7 +5,7 @@
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=1
-#SBATCH --mem=16G
+#SBATCH --mem=4G
 #SBATCH --time=04:00:00
 #SBATCH --output=logs/focal_rank_%A_%a.out
 #SBATCH --error=logs/focal_rank_%A_%a.err
