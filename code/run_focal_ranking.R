@@ -294,6 +294,7 @@ rank_one_existing_pair <- function(target_batch_id, target_pair_id) {
       combined_LR,
       rank,
       n_database,
+      tied_group_size,
       top_200,
       top_100,
       top_50,
