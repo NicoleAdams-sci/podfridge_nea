@@ -10,15 +10,20 @@
 # by SLURM_ARRAY_TASK_ID, instead of one file being hardcoded per job.
 #
 # Usage:
-#   code/make_focal_ranking_manifest.sh [POPULATION] [MANIFEST_OUT]
+#   code/make_focal_ranking_manifest.sh [POPULATION] [MANIFEST_OUT] [MAX_CHUNK]
 #
-# Example:
-#   code/build_pair_ranking_manifest.sh all output/focal_ranking_test/manifest_all_20260702.csv
+# MAX_CHUNK (optional) caps which chunk files get included, e.g. MAX_CHUNK=10
+# includes chunk1..chunk10 and skips chunk11+. Leave unset/empty to include
+# every chunk file found (previous behavior, unchanged).
+#
+# Example (only need 10k replicates/relationship = 10 chunks of n1000):
+#   code/make_focal_ranking_manifest.sh all output/focal_ranking_test/manifest_all_20260702.csv 10
 
 set -euo pipefail
 
 POPULATION=${1:-all}
 MANIFEST_OUT=${2:-output/focal_ranking_test/manifest_${POPULATION}_$(date +%Y%m%d_%H%M%S).csv}
+MAX_CHUNK=${3:-}
 
 # True-relative types simulated for the focal test (each gets ranked
 # against both tested hypotheses inside run_pair_ranking_chunk.R)
@@ -51,12 +56,23 @@ echo "pair_file,combined_lr_file,unrelated_pool_file" > "$MANIFEST_OUT"
 
 n_found=0
 n_missing_lr=0
+n_skipped_chunk=0
 
 for REL in "${RELATIONSHIPS[@]}"; do
   for PAIR_FILE in "${PAIR_DIR}"/pairs_"${POPULATION}"_"${REL}"_n*_chunk*_*.csv; do
     [ -e "$PAIR_FILE" ] || continue   # glob matched nothing for this relationship
 
     BASENAME=$(basename "$PAIR_FILE")
+
+    # Extract the chunk number (e.g. "..._chunk10_..." -> 10) for numeric
+    # comparison, since chunk10 < chunk2 lexicographically but not numerically.
+    CHUNK_NUM=$(echo "$BASENAME" | sed -E 's/.*_chunk([0-9]+)_.*/\1/')
+
+    if [ -n "$MAX_CHUNK" ] && [ "$CHUNK_NUM" -gt "$MAX_CHUNK" ] 2>/dev/null; then
+      n_skipped_chunk=$((n_skipped_chunk + 1))
+      continue
+    fi
+
     COMBINED_LR_FILE="${COMBINED_LR_DIR}/${BASENAME/pairs_/combined_LR_}"
 
     if [ -f "$COMBINED_LR_FILE" ]; then
@@ -72,6 +88,8 @@ done
 echo "============================================================="
 echo "  Manifest written to : ${MANIFEST_OUT}"
 echo "  Population           : ${POPULATION}"
+echo "  Max chunk            : ${MAX_CHUNK:-<no limit>}"
 echo "  Pair/combined_LR rows: ${n_found}"
 echo "  Skipped (missing LR) : ${n_missing_lr}"
+echo "  Skipped (> max chunk): ${n_skipped_chunk}"
 echo "============================================================="
