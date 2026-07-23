@@ -3,7 +3,7 @@ library(data.table)
 
 setwd("/nfs/turbo/lsa-tlasisi1/podfridge_simulations/")
 
-source("code/module11_ranking_lr_calculator.R")
+source("code/module11_ranking_lr_calculator_fast.R")
 source("code/module12_ranking_outcome_recorder.R")
 source("code/focal_test_helper_fns.R")
 
