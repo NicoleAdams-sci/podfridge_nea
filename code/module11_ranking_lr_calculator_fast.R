@@ -3,17 +3,16 @@
 # ------------------------------------------------------------------------------
 #
 # Purpose:
-#   Takes assembled ranking databases from Module 10 and calculates combined
-#   LRs for each focal-vs-database member pair across all loci sets, using
-#   Module 4 (single locus LR) and Module 5 (combined LR).
+#   Uses assemble_unrelated_database_from_existing_pair() in focal_test_helper_fns.R
+#   to pull an indiv from already simulated pairs
 #
 #   Results are saved to output/focal_ranking_test/ and returned as a list
 #   for direct input to Module 11 (ranking and outcome recorder).
 #
 # Dependencies:
+#   - focal_test_helper_fns.R
 #   - Module 4: Single Locus LR Calculator
 #   - Module 5: Combined LR Calculator
-#   - Module 10 output: assembled ranking databases
 #
 # ------------------------------------------------------------------------------
 
