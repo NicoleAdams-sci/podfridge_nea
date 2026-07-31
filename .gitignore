@@ -9,6 +9,9 @@
 .Rhistory
 .Rapp.history
 
-# Ignore output for now
+# Ignore output/big data files for now
 output/
+combined_LR/
+LR/
+unrelated_pool/
 
