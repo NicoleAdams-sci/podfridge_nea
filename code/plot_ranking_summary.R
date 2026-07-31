@@ -138,7 +138,7 @@ if (!has_tied_group_size) {
 
 log_message(sprintf("Loaded %s rows across %s unique focal pairs",
                      format(nrow(outcomes_raw), big.mark = ","),
-                     format(n_distinct(outcomes_raw$original_pair_id), big.mark = ",")))
+                     format(nrow(distinct(outcomes_raw, true_relationship, original_batch_id, original_pair_id)), big.mark = ",")))
 
 outcomes <- outcomes_raw %>%
   mutate(
@@ -185,6 +185,25 @@ prop_summary <- outcomes_long %>%
     .groups = "drop"
   )
 
+# --- Labels for the subtitle -------------------------------------------------
+# NB: (original_batch_id, original_pair_id) is NOT unique across relationships.
+# The pairs were simulated in a parallel SLURM array and batch_id has only
+# second resolution, so tasks that started in the same second share a batch_id;
+# pair_id (e.g. "c03_001") encodes the chunk, not the relationship, so it also
+# collides across relationships. Key on true_relationship as well. (2026-07-31)
+n_per_rel <- outcomes %>%
+  distinct(true_relationship, original_batch_id, original_pair_id) %>%
+  count(true_relationship, name = "n")
+
+n_focal_label <- if (n_distinct(n_per_rel$n) == 1) {
+  format(n_per_rel$n[1], big.mark = ",")
+} else {
+  paste(format(range(n_per_rel$n), big.mark = ","), collapse = "\u2013")  # flag imbalance
+}
+
+# Unrelated database size = ranked candidates minus the one inserted true relative
+n_db_label <- format(unique(outcomes$n_database)[1] - 1L, big.mark = ",")
+
 fig_prop <- ggplot(
   prop_summary,
   aes(x = top_n_label, y = prop_in_top_n, fill = tested_relationship,
@@ -200,8 +219,8 @@ fig_prop <- ggplot(
   scale_color_manual(values = c("TRUE" = "gold", "FALSE" = NA), guide = "none") +
   labs(
     title    = "Focal Ranking Test: Proportion of True Relatives Recovered in Top N",
-    subtitle = sprintf("n = %s focal replicates per true relationship | gold border = tested hypothesis matches truth",
-                       format(n_distinct(outcomes$original_pair_id), big.mark = ",")),
+    subtitle = sprintf("n = %s replicates per true relationship  |  %s-candidate unrelated database  |  gold border = tested hypothesis matches truth",
+                       n_focal_label, n_db_label),
     x = "Rank Threshold",
     y = "Proportion of True Relatives in Top N"
   ) +
