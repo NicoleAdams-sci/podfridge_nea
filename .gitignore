@@ -5,13 +5,31 @@
 # Ignore old/deprecated code
 **/code_graveyard/
 
-# Ignore R
+# R session / IDE files
 .Rhistory
 .Rapp.history
+.RData
+.Ruserdata
+.Rproj.user/
 
-# Ignore output/big data files for now
-output/
-combined_LR/
-LR/
-unrelated_pool/
+# R Markdown / knitr caches (rendered .html is committed instead)
+*_cache/
 
+# SLURM logs
+logs/
+
+# Large standing datasets
+output/unrelated_pool/
+output/combined_LR/
+output/LR/
+
+# Per-run intermediates (regenerable from the array + combine step)
+output/**/chunks/
+output/**/chunks_smoketest/
+output/**/combined_*_outcomes.csv
+output/**/ranking_outcomes_*.csv
+output/**/ranking_failures_*.csv
+
+# Stray cluster logs that land under output/
+output/**/*.out
+output/**/*.err
