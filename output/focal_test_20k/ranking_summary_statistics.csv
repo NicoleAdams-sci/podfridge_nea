@@ -1,0 +1,13 @@
+loci_set,tested_relationship,tested_population,true_relationship,rel_match,n_replicates,prop_top_10,prop_top_50,prop_top_100,prop_top_200,median_rank,mean_rank,sd_rank,min_rank,max_rank,mean_tied_group_size,median_tied_group_size
+Core 13,Parent-Child,all,Parent-Child,TRUE,10000,1,1,1,1,1,1.0097,0.14835130876093108,1,7,1,1
+Expanded 20,Parent-Child,all,Parent-Child,TRUE,10000,1,1,1,1,1,1,0,1,1,1,1
+Core 13,Full Siblings,all,Parent-Child,FALSE,10000,0.9888,0.9983,0.9993,0.9997,1,1.5231,6.179569976827663,1,330,1,1
+Expanded 20,Full Siblings,all,Parent-Child,FALSE,10000,1,1,1,1,1,1.0024,0.08243130165143091,1,8,1,1
+Core 13,Parent-Child,all,Full Siblings,FALSE,10000,0.1375,0.1375,0.1375,0.1375,10001,8626.09945,3443.9548019322892,1,10006.5,17250.8021,20001
+Expanded 20,Parent-Child,all,Full Siblings,FALSE,10000,0.0402,0.0402,0.0402,0.0402,10001,9599.0001,1964.3782626179343,1,10001.5,19196.9998,20001
+Core 13,Full Siblings,all,Full Siblings,TRUE,10000,0.9605,0.9801,0.9866,0.9917,1,10.0941,134.88884292329192,1,6817,1,1
+Expanded 20,Full Siblings,all,Full Siblings,TRUE,10000,0.9976,0.999,0.9993,0.9997,1,1.2275,6.676571081785996,1,417,1,1
+Core 13,Parent-Child,all,Half Siblings,FALSE,10000,0.012,0.012,0.012,0.012,10001,9881.1177,1088.9164160727992,1,10007.5,19760.7654,20001
+Expanded 20,Parent-Child,all,Half Siblings,FALSE,10000,8e-4,8e-4,8e-4,8e-4,10001,9993.0003,282.74369904534564,1,10001.5,19984.9994,20001
+Core 13,Full Siblings,all,Half Siblings,FALSE,10000,0.5003,0.6446,0.702,0.7608,10,493.1074,1478.1215152302664,1,18563,1,1
+Expanded 20,Full Siblings,all,Half Siblings,FALSE,10000,0.7364,0.8433,0.8803,0.9134,1,124.2044,621.0076526671045,1,16027,1,1
