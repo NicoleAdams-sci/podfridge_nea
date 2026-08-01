@@ -1,0 +1,229 @@
+---
+title: "Focal Ranking Test: Results & Workflow"
+author: "NE Adams"
+date: "`r format(Sys.Date(), '%B %d, %Y')`"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    toc_depth: 2
+    code_folding: hide
+    theme: cosmo
+    df_print: paged
+    self_contained: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = FALSE, message = FALSE, warning = FALSE,
+  fig.align = "center", out.width = "100%"
+)
+
+suppressPackageStartupMessages({
+  library(tidyverse)
+})
+
+# --- Path handling -----------------------------------------------------------
+# Works whether the report is knit from the repo root (working dir = root)
+# or via rmarkdown::render("analysis/focal_ranking_test.Rmd") (working dir =
+# analysis/). No dependency on `here`.
+base <- if (dir.exists("output")) "." else ".."
+p <- function(...) file.path(base, ...)
+
+# Include a figure only if it exists (older runs may lack some diagnostics).
+show_fig <- function(...) {
+  path <- p(...)
+  if (file.exists(path)) knitr::include_graphics(path) else invisible()
+}
+
+# Render a CSV as a table if it exists; silently skip if not.
+show_table <- function(path, caption = NULL, digits = 3) {
+  if (length(path) == 0 || is.na(path) || !file.exists(path)) return(invisible())
+  df <- readr::read_csv(path, show_col_types = FALSE)
+  knitr::kable(df, caption = caption, digits = digits)
+}
+
+# The per-size summary CSV has inconsistent names across runs
+# (ranking_summary_statistics_10k.csv vs ranking_summary_statistics.csv).
+# Resolve whichever exists.
+find_summary <- function(size) {
+  cand <- p("output", paste0("focal_test_", size),
+            c(sprintf("ranking_summary_statistics_%s.csv", size),
+              "ranking_summary_statistics.csv"))
+  hit <- cand[file.exists(cand)]
+  if (length(hit)) hit[1] else NA_character_
+}
+```
+
+# Overview
+
+This page reports the **focal (database-search) ranking test**: take one member
+of a simulated pair as a query profile, drop its true relative into a large
+database of unrelated individuals, score every database member against the query
+by combined likelihood ratio, rank them, and ask **whether the true relative
+lands in the top *N* (200 / 100 / 50 / 10)** — and how that changes with the
+true relationship, the tested hypothesis, the loci set, and the size of the
+database.
+
+- Method & module details: [`README_focal_ranking_test.md`](../README_focal_ranking_test.md)
+- Core simulation / LR pipeline: [`SimulationModules_summary.md`](../SimulationModules_summary.md)
+
+Each existing pair is one focal replicate: **10,000 replicates per true
+relationship** (10 chunks × 1,000 pairs). Databases tested so far: **10k, 20k,
+100k** unrelated individuals.
+
+## Study parameters
+
+| Parameter | Value |
+|-----------|-------|
+| Unrelated database | Pooled ("all") population allele frequencies; tested at **10k, 20k, 100k** individuals |
+| Focal replicates | **10,000 per true relationship**, drawn under "all" (pooled) frequencies |
+| Relatives simulated per focal | 1 parent–child, 1 full sibling, 1 half sibling |
+| Hypotheses tested | Parent–child **and** full-sibling (both tested for every pair) |
+| Loci sets | Core 13 and Expanded 20 |
+| Outcome | The true relative's rank, and whether it lands in the top 10 / 50 / 100 / 200 |
+
+# Workflow
+
+Heavy computation runs on the cluster (SLURM); this report reads only the small
+figure and summary outputs. Steps 1–5 run once per database size; step 6 runs
+once across sizes.
+
+```bash
+# 1. Generate the unrelated pool (once per N)
+sbatch code/generate_unrelated_pool.sh all 20000
+
+# 2. Build the manifest (pairs + combined_LR + this pool)
+code/make_focal_ranking_manifest.sh --pool-size 20000 --max-chunk 10
+
+# 3. Rank (array = manifest rows x CHUNKS_PER_FILE)
+sbatch --array=1-3000 code/submit_focal_ranking.sh \
+  output/focal_test_20k/manifest_all_N20000_<dt>.csv \
+  10 100 output/focal_test_20k/chunks
+
+# 4. Combine per-chunk outcomes
+code/combine_ranking_outcomes.sh \
+  output/focal_test_20k/chunks output/focal_test_20k/combined_all_N20000
+
+# 5. Per-database figures + summary table
+Rscript code/plot_ranking_summary.R \
+  output/focal_test_20k/combined_all_N20000_outcomes.csv \
+  output/focal_test_20k/figures
+
+# 6. Cross-database comparison (once, over all sizes)
+Rscript code/compare_ranking_across_databases.R --out output/focal_cross_db \
+  output/focal_test_10k/combined_all_N10000_outcomes.csv \
+  output/focal_test_20k/combined_all_N20000_outcomes.csv \
+  output/focal_test_100k/combined_all_N100000_outcomes.csv
+```
+
+# Results across database sizes
+
+The headline question — how recovery holds up as the database grows.
+
+## Recovery curves
+
+Each curve is the empirical CDF of the true relative's rank: the proportion of
+replicates with rank ≤ *N*, for every *N*. Database size is the line colour;
+the tested hypothesis is the line type; dotted verticals mark top 10/50/100/200.
+(The solid parent-child-tested lines that sit flat then jump near *N* ≈ database/2
+are the tied-at-zero block — under a mismatched hypothesis most candidates share
+no allele at some locus, collapse to LR = 0, and receive one averaged rank.)
+
+```{r}
+show_fig("output", "focal_cross_db", "figures", "recovery_curves_across_databases.png")
+```
+
+## Recovery at each threshold vs. database size
+
+The same result read at the operational cutoffs, with Wilson 95% intervals.
+
+```{r}
+show_fig("output", "focal_cross_db", "figures", "recovery_by_threshold_across_databases.png")
+```
+
+## Top-200 recovery by database size
+
+```{r}
+rt_path <- p("output", "focal_cross_db", "recovery_by_threshold_across_databases.csv")
+if (file.exists(rt_path)) {
+  readr::read_csv(rt_path, show_col_types = FALSE) %>%
+    filter(threshold == "Top 200") %>%
+    select(true_relationship, tested_relationship, loci_set, db_size, prop) %>%
+    pivot_wider(names_from = db_size, values_from = prop) %>%
+    knitr::kable(digits = 3,
+                 caption = "Proportion of true relatives recovered in the top 200")
+}
+```
+
+## Rank summary
+
+```{r}
+show_table(p("output", "focal_cross_db", "rank_summary_across_databases.csv"),
+           caption = "Median / mean / min / max rank of the true relative, per condition and database size")
+```
+
+# Results per database size {.tabset}
+
+Per-size figures: recovery in top *N*, the full rank distribution, and (for runs
+that recorded it) the size of the tied-at-zero group.
+
+## 10k
+
+```{r}
+show_fig("output", "focal_test_10k", "figures", "ranking_prop_in_top_n.png")
+show_fig("output", "focal_test_10k", "figures", "ranking_rank_distribution.png")
+show_fig("output", "focal_test_10k", "figures", "ranking_tied_group_size.png")
+```
+
+```{r}
+show_table(find_summary("10k"), caption = "10k database — summary statistics")
+```
+
+*Note: the 10k run predates the tied-group-size diagnostic, so that panel is
+absent here.*
+
+## 20k
+
+```{r}
+show_fig("output", "focal_test_20k", "figures", "ranking_prop_in_top_n.png")
+show_fig("output", "focal_test_20k", "figures", "ranking_rank_distribution.png")
+show_fig("output", "focal_test_20k", "figures", "ranking_tied_group_size.png")
+```
+
+```{r}
+show_table(find_summary("20k"), caption = "20k database — summary statistics")
+```
+
+## 100k
+
+```{r}
+show_fig("output", "focal_test_100k", "figures", "ranking_prop_in_top_n.png")
+show_fig("output", "focal_test_100k", "figures", "ranking_rank_distribution.png")
+show_fig("output", "focal_test_100k", "figures", "ranking_tied_group_size.png")
+```
+
+```{r}
+show_table(find_summary("100k"), caption = "100k database — summary statistics")
+```
+
+# Key findings
+
+- **Parent–child and full-sibling relatives under the matched hypothesis are recovered ~98–100% in the top 200, nearly independent of database size.** A close relative's LR dominates any unrelated candidate. The one mild exception is full siblings at Core 13, which slip from 99.6% (10k) to 97.8% (100k).
+- **Half-siblings are recoverable but graded, and recovery degrades as the database grows** — most steeply at fewer loci (Core 13 falls ~19 points across 10k→100k vs Expanded 20's ~11) and at tighter thresholds. This is the false-association-scales-with-database-size effect familial search is concerned with.
+- **Testing the wrong hypothesis collapses recovery.** True full- and half-siblings scored under the parent-child hypothesis hit a no-sharing locus, zero out, and join a large tied-at-zero block (median tied group ≈ the whole database) — so top-*N* recovery, not median rank, is the interpretable metric there.
+- **More loci help under the correct hypothesis, but hurt under the wrong one.** Expanded 20 beats Core 13 for every matched/appropriate case (most visibly half-siblings: 83% vs 62% in the top 200 at 100k). But under the mismatched parent-child hypothesis the ranking reverses — Expanded 20 recovers *fewer* true relatives (full-sib true: 4.0% vs 13.8%; half-sib true: 0.1% vs 1.2%), because each extra locus is another chance for a true relative to hit a no-sharing locus and zero out.
+
+# Reproducing this report
+
+```bash
+# 1. Pull the small outputs (figures + summary CSVs) down from the cluster:
+bash code/pull_focal_outputs.sh <user@cluster> <remote_repo>/output
+
+# 2. Render (produces a self-contained analysis/focal_ranking_test.html):
+Rscript -e 'rmarkdown::render("analysis/focal_ranking_test.Rmd")'
+```
+
+```{r}
+sessionInfo()
+```
