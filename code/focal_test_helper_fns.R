@@ -2,7 +2,7 @@
 # focal test helper functions    #
 ##################################
 
-# converts existing combined_LR_...csv row into the format Module 12 expects
+# converts existing combined_LR_...csv row into the format Module 11 expects
 
 format_existing_true_combined_lr <- function(combined_lr_one_pair,
                                              tested_relationships = c("parent_child", "full_siblings"),
@@ -68,7 +68,7 @@ format_existing_true_combined_lr <- function(combined_lr_one_pair,
 
 
 
-# creates Module 11 input for unrelated candidates only
+# creates Module 10 input for unrelated candidates only
 
 assemble_unrelated_database_from_existing_pair <- function(pair_data_one_pair,
                                                            unrelated_pool_data,
