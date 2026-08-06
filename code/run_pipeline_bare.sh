@@ -22,6 +22,13 @@ bash code/lr_submission.sh
 # Verify: ls output/LR/LR_*.csv | wc -l  (should be 1000)
 
 # ============================================================================
+# STEP 2.5: ANALYZE PER-LOCUS INFLATION  (optional; runs in parallel w/ 3-6)
+# ============================================================================
+# Reads output/LR/ directly - no dependency on combined LRs or later steps.
+sbatch code/analyze_locus_inflation.sh output/lr_analysis_YYYYMMDD/locus_inflation
+# Verify: ls output/lr_analysis_YYYYMMDD/locus_inflation/*.csv
+
+# ============================================================================
 # STEP 3: CALCULATE COMBINED LRs
 # ============================================================================
 bash code/combined_lr_submission.sh
@@ -36,29 +43,58 @@ sbatch code/analyze_lr_outputs.sh output/lr_analysis_$(date +%Y%m%d)
 # Verify: ls output/lr_analysis_*/  (check directory created)
 
 # ============================================================================
-# STEP 5: GENERATE PLOTS
+# STEP 4.5: PREPARE INTERMEDIATE CSVs FOR PLOTTING
 # ============================================================================
-# Replace YYYYMMDD with your analysis date from Step 4
+sbatch code/prepare_combined_lr_intermediates.sh output/lr_analysis_YYYYMMDD
+# Wait for: squeue -u $USER shows no jobs
+# Verify: ls output/lr_analysis_YYYYMMDD/proportions_with_classification.csv
+
+# ============================================================================
+# STEP 5: GENERATE PUBLICATION PLOTS
+# ============================================================================
+# Replace YYYYMMDD with your analysis date from Step 4.
+# All plotting scripts run interactively (Rscript), not via sbatch.
 
 module load Rtidyverse
 
-# Matched plots (run directly - fast)
-Rscript code/plots_matched.R output/lr_analysis_YYYYMMDD lr_analysis_YYYYMMDD/plots_matched
+# Matched scenarios
+Rscript code/plots_matched_publication.R output/lr_analysis_YYYYMMDD \
+    output/lr_analysis_YYYYMMDD/plots_matched
 
-# Mismatched plots (submit as job)
-sbatch code/plots_mismatched.sh output/lr_analysis_YYYYMMDD lr_analysis_YYYYMMDD/plots_mismatched
+# Population mismatch (needs Step 4.5)
+Rscript code/plots_mismatched_population.R output/lr_analysis_YYYYMMDD \
+    output/lr_analysis_YYYYMMDD/plots_mismatched_population
 
-# Threshold plots (submit as job)
-sbatch code/plots_proportion_exceeding_cutoffs.sh lr_analysis_YYYYMMDD lr_analysis_YYYYMMDD/plots_exceeding_cutoffs
+# Relationship discrimination (loads the full .rds - ~42 GB)
+Rscript code/plots_mismatched_relationship.R output/lr_analysis_YYYYMMDD \
+    output/lr_analysis_YYYYMMDD/plots_mismatched_relationship
 
-# Wait for: squeue -u $USER shows no jobs
+# Classification / FPR thresholds (needs Step 4.5)
+Rscript code/plots_cutoffs_publication.R output/lr_analysis_YYYYMMDD \
+    output/lr_analysis_YYYYMMDD/plots_cutoffs
+
+# Per-locus inflation (needs Step 2.5)
+Rscript code/plots_locus_inflation.R output/lr_analysis_YYYYMMDD/locus_inflation \
+    output/lr_analysis_YYYYMMDD/locus_inflation/plots
 
 # ============================================================================
-# STEP 6: GENERATE STATISTICAL REPORT
+# STEP 6: RUN STATISTICAL TESTS
+# ============================================================================
+sbatch code/run_statistical_tests.sh output/lr_analysis_YYYYMMDD
+# Wait for: squeue -u $USER shows no jobs
+# Verify: ls output/lr_analysis_YYYYMMDD/stats/*.csv
+
+# ============================================================================
+# STEP 7: GENERATE STATISTICAL REPORT (optional)
 # ============================================================================
 sbatch code/simulation_analysis.sh lr_analysis_YYYYMMDD
 # Wait for: squeue -u $USER shows no jobs
 # Report at: output/lr_analysis_YYYYMMDD/analysis_results/simulation_analysis_YYYYMMDD.html
+
+# ============================================================================
+# FOCAL RANKING TEST (separate workflow)
+# ============================================================================
+# See README_focal_ranking_test.md for the full per-database-size workflow.
 
 # ============================================================================
 # DONE!
