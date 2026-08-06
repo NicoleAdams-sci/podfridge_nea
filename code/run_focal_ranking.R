@@ -43,8 +43,8 @@ OUTPUT_DIR            <- args[6]
 
 setwd("/nfs/turbo/lsa-tlasisi1/podfridge_simulations/")
 
-source("code/module11_ranking_lr_calculator_fast.R")
-source("code/module12_ranking_outcome_recorder.R")
+source("code/module10_ranking_lr_calculator_fast.R")
+source("code/module11_ranking_outcome_recorder.R")
 source("code/focal_test_helper_fns.R")
 
 kinship_matrix <- fread("data/kinship_coefficients.csv")
@@ -233,7 +233,7 @@ rank_one_existing_pair <- function(target_batch_id, target_pair_id) {
     loci_sets_to_use     = loci_sets_to_use
   )
   
-  # Ensure focal_id exists for Module 12
+  # Ensure focal_id exists for Module 11
   true_combined$focal_id <- original_pair_id
   
   # Assemble focal vs unrelated database
