@@ -45,11 +45,14 @@ The focal test **reuses** work from the main pipeline rather than resimulating:
 The focal layer adds only: database generation, a fast focal-vs-database LR
 path, the ranking/outcome recorder, the SLURM orchestration, and the plots.
 
-> **There is no Module 10.** A "Module 10" would have assembled a focal-vs-database
-> table. Because this design reuses existing pairs instead of simulating fresh
-> focal families, that assembly is done by
+> **The focal layer is modules 10–11.** An earlier draft had three modules
+> (10 = database assembler, 11 = LR calculator, 12 = outcome recorder). Because
+> this design reuses existing pairs instead of simulating fresh focal families,
+> the assembler shrank to a pair of helper functions and was dropped as a
+> numbered module — that job now lives in
 > `assemble_unrelated_database_from_existing_pair()` in
-> `focal_test_helper_fns.R`.
+> `focal_test_helper_fns.R`. The two remaining modules were renumbered 11→10 and
+> 12→11 (August 2026) so the sequence has no gap.
 
 ---
 
@@ -68,10 +71,10 @@ described in the main README.
 ### Ranking engine (all sourced by `run_focal_ranking.R`)
 | File | Role |
 |------|------|
-| `focal_test_helper_fns.R` | Does the "Module 10" job: reshape the existing true-relative combined LR into the format Module 12 expects, and assemble the focal genotype against every unrelated candidate. |
-| `module11_ranking_lr_calculator_fast.R` | Combined LR for every focal-vs-candidate pair, under each tested hypothesis × loci set (wraps the fast single-locus LR + Module 5). |
-| `module4_single_locus_LR_fast.R` | Vectorized single-locus LR — one `data.table` join instead of a per-row filter over the allele-frequency table. Drop-in for `module4_single_locus_LR.R` inside Module 11 (~10–100× faster); leaves the original module 4 untouched. |
-| `module12_ranking_outcome_recorder.R` | Rank candidates by combined LR within each replicate, find the true relative's rank, record the top 10/50/100/200 flags. |
+| `focal_test_helper_fns.R` | Database assembly: reshape the existing true-relative combined LR into the format Module 11 expects, and assemble the focal genotype against every unrelated candidate. |
+| `module10_ranking_lr_calculator_fast.R` | Combined LR for every focal-vs-candidate pair, under each tested hypothesis × loci set (wraps the fast single-locus LR + Module 5). |
+| `module4_single_locus_LR_fast.R` | Vectorized single-locus LR — one `data.table` join instead of a per-row filter over the allele-frequency table. Drop-in for `module4_single_locus_LR.R` inside Module 10 (~10–100× faster); leaves the original module 4 untouched. |
+| `module11_ranking_outcome_recorder.R` | Rank candidates by combined LR within each replicate, find the true relative's rank, record the top 10/50/100/200 flags. |
 
 ### Orchestration
 | File | Role |
@@ -87,24 +90,30 @@ described in the main README.
 | `plot_ranking_summary.R` | **Per-database** figures: recovery bars in top N, rank distribution, optional tied-group size + a summary table. Run once per database size. |
 | `compare_ranking_across_databases.R` | **Cross-database** figures: recovery curves (empirical CDF of rank) and per-threshold degradation with Wilson 95% CIs, plus summary tables. Run once over all sizes. |
 
+### Report
+| File | Role |
+|------|------|
+| `analysis/focal_ranking_test.Rmd` | Knits the figures and summary CSVs from steps 5–6 into a self-contained HTML report: overview, study parameters, workflow, cross-database results, per-size tabs, key findings. Skips any figure or table that is missing, so it renders against partial runs. |
+| `analysis/focal_ranking_test.html` | The committed rendered report. |
+
 ### Dependency chain
 ```
 run_focal_ranking.R
-├── module11_ranking_lr_calculator_fast.R
+├── module10_ranking_lr_calculator_fast.R
 │   ├── LR_kinship_utility_functions.R        (main pipeline)
 │   ├── module1 / module2 / module3           (main pipeline)
 │   ├── module4_single_locus_LR.R             (main pipeline, original)
 │   ├── module4_single_locus_LR_fast.R        (focal — vectorized swap)
 │   └── module5_combined_LR.R                 (main pipeline)
-├── module12_ranking_outcome_recorder.R       (focal)
-└── focal_test_helper_fns.R                   (focal — the "Module 10" job)
+├── module11_ranking_outcome_recorder.R       (focal)
+└── focal_test_helper_fns.R                   (focal — database assembly)
 ```
 
 ---
 
 ## Workflow
 
-Steps 1–5 run **once per database size**. Step 6 runs **once**, across all of
+Steps 1–5 run **once per database size**. Steps 6–7 run **once**, across all of
 them. Substitute your size (e.g. `20000`) throughout.
 
 ```bash
@@ -152,24 +161,38 @@ Rscript code/compare_ranking_across_databases.R \
   output/focal_test_10k/combined_all_N10000_outcomes.csv \
   output/focal_test_20k/combined_all_N20000_outcomes.csv \
   output/focal_test_100k/combined_all_N100000_outcomes.csv
+
+# 7. Render the report. Works from the repo root or from analysis/; pulls in
+#    whichever figures and summary CSVs exist, so partial runs still knit.
+Rscript -e 'rmarkdown::render("analysis/focal_ranking_test.Rmd")'
+#   -> analysis/focal_ranking_test.html
 ```
 
 ### Output layout
 ```
 output/
-├── unrelated_pool/
+├── unrelated_pool/                    # gitignored (large, regenerable)
 │   └── all_N<size>_combined_unrelated_<dt>.csv
 ├── focal_test_<size>/                 # one dir per database size
 │   ├── manifest_all_N<size>_<dt>.csv
-│   ├── chunks/ranking_outcomes_*.csv
-│   ├── combined_all_N<size>_outcomes.csv
-│   └── figures/
-└── focal_cross_db/                    # step 6 output
-    ├── recovery_curves_across_databases.{png,pdf}
-    ├── recovery_by_threshold_across_databases.{png,pdf}
+│   ├── chunks/ranking_outcomes_*.csv  # gitignored (per-array-task output)
+│   ├── combined_all_N<size>_outcomes.csv   # gitignored
+│   ├── ranking_summary_statistics.csv      # from step 5, committed
+│   └── figures/                            # from step 5, committed
+│       ├── ranking_prop_in_top_n.png
+│       ├── ranking_rank_distribution.png
+│       └── ranking_tied_group_size.png
+└── focal_cross_db/                    # step 6 output, committed
+    ├── figures/
+    │   ├── recovery_curves_across_databases.png
+    │   └── recovery_by_threshold_across_databases.png
     ├── recovery_by_threshold_across_databases.csv
     └── rank_summary_across_databases.csv
 ```
+
+Only the small artifacts — figures and summary CSVs — are committed. The pool,
+the per-chunk outcomes, and the combined outcomes CSV are gitignored because
+they are large and fully regenerable from steps 1–4.
 
 ---
 
