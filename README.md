@@ -6,12 +6,24 @@ STR (Short Tandem Repeat) profile simulation and kinship likelihood ratio calcul
 
 This repository contains a modular R pipeline for simulating STR genetic profiles and calculating likelihood ratios (LRs) for kinship testing. The pipeline enables evaluation of how population-specific allele frequencies affect kinship hypothesis testing across different relationship types.
 
+### Where to look
+
+This file is the map. The detailed documentation lives in two places:
+
+| Document | Covers |
+|---|---|
+| [`SimulationModules_summary.md`](SimulationModules_summary.md) | **The main reference.** Every module and wrapper in depth, the full start-to-finish workflow with SLURM commands and resource requirements, output file schemas, and the test suite. |
+| [`README_focal_ranking_test.md`](README_focal_ranking_test.md) | The supplementary focal (database-search) ranking test: does a true relative rank in the top N of a database of unrelated individuals? |
+
 ## Repository Structure
 
 ```
 podfridge_nea/
 ├── code/                  # All R modules, scripts, and wrappers
 ├── data/                  # Input data (allele frequencies, kinship coefficients)
+├── analysis/              # R Markdown reports and their rendered HTML
+├── tests/                 # testthat unit and integration tests
+├── docs/                  # Reference tables (e.g. SLURM array assignments)
 ├── output/                # All simulation and analysis outputs
 │   ├── LR/                # Single-locus LR results
 │   └── combined_LR/       # Multi-locus combined LR results
@@ -58,17 +70,28 @@ The pipeline is built on 9 interconnected R modules:
 
 ### Batch Generation Modules (Modules 6-8)
 
-| File | Purpose |
-|------|---------|
-| `module6_single_combo_pair_generator.R` | Batch generates pairs for specific population-relationship combinations |
-| `module7_single_pop_focal_generator.R` | Generates focal individuals with flexible family structures |
-| `module8_unrelated_pool_generator.R` | Generates pools of unrelated individuals for null distributions |
+| File | Purpose | Status |
+|------|---------|--------|
+| `module6_single_combo_pair_generator.R` | Batch generates pairs for specific population-relationship combinations | Unused — superseded by direct `sim_pairs.R` calls |
+| `module7_single_pop_focal_generator.R` | Generates focal individuals with flexible family structures | Unused — the focal ranking test reuses existing pairs instead of simulating families. Retained and unit-tested |
+| `module8_unrelated_pool_generator.R` | Generates pools of unrelated individuals for null distributions | **In production** — drives `generate_unrelated_pool.R`, step 1 of the focal ranking test |
 
 ### Analysis Module (Module 9)
 
 | File | Purpose |
 |------|---------|
 | `module9_combinedLR_stats_functions.R` | Statistical analysis functions: `calculate_summary_stats()`, `calculate_ratio_stats()`, `calculate_cutoffs()`, `calculate_proportions_exceeding_cutoffs()` |
+
+### Focal Ranking Modules (Modules 10-11)
+
+Supplementary — see [`README_focal_ranking_test.md`](README_focal_ranking_test.md).
+
+| File | Purpose |
+|------|---------|
+| `focal_test_helper_fns.R` | Assembles the focal profile against every unrelated database candidate, reusing existing pairs |
+| `module4_single_locus_LR_fast.R` | Vectorized `data.table`-join rewrite of Module 4 (~10-100x faster). Validated for `parent_child` and `full_siblings` only |
+| `module10_ranking_lr_calculator_fast.R` | Combined LR for every focal-vs-candidate pair, per tested hypothesis x loci set |
+| `module11_ranking_outcome_recorder.R` | Ranks candidates, finds the true relative's rank, records top 10/50/100/200 flags |
 
 ---
 
@@ -98,21 +121,34 @@ For HPC cluster submission:
 | `combined_lr_submission.sh` | Submits combined LR calculation jobs |
 | `combined_lr.sh` | SLURM wrapper for `combined_lr_wrapper.R` |
 | `analyze_lr_outputs.sh` | SLURM wrapper for `analyze_lr_outputs.R` |
+| `prepare_combined_lr_intermediates.sh` | SLURM wrapper for the plotting-intermediates step |
+| `analyze_locus_inflation.sh` | SLURM wrapper for per-locus inflation analysis |
+| `run_statistical_tests.sh` | SLURM wrapper for the inferential test suite |
 | `simulation_analysis.sh` | Workflow script for running analysis pipeline |
-| `plots_mismatched.sh` | SLURM wrapper for `plots_mismatched.R` |
-| `plots_proportion_exceeding_cutoffs.sh` | SLURM wrapper for `plots_proportion_exceeding_cutoffs.R` |
+| `generate_unrelated_pool.sh` | Focal ranking test — builds an unrelated database |
+| `make_focal_ranking_manifest.sh` | Focal ranking test — builds the run manifest |
+| `submit_focal_ranking.sh` | Focal ranking test — SLURM array ranking driver |
+| `combine_ranking_outcomes.sh` | Focal ranking test — concatenates per-chunk outcomes |
 
-**Note:** Most R wrapper and plotting scripts have corresponding `.sh` SLURM submission scripts for cluster execution.
+**Note:** The analysis and simulation steps have `.sh` SLURM submission scripts. The publication plotting scripts do **not** — they are run interactively with `Rscript`.
 
 ---
 
 ## Plotting Scripts (`code/`)
 
+All publication plotting scripts run interactively (`Rscript`), not via SLURM, and share the Okabe-Ito colorblind-safe palette.
+
 | File | Purpose |
 |------|---------|
-| `plots_matched.R` | Plots LR distributions when population is correctly matched |
-| `plots_mismatched.R` | Plots LR distributions when population is mismatched |
-| `plots_proportion_exceeding_cutoffs.R` | Plots proportion of pairs exceeding LR cutoffs |
+| `plots_matched_publication.R` | LR distributions when population is correctly matched (violin + per-population boxplots) |
+| `plots_mismatched_population.R` | Robustness to wrong population frequencies (line plots + inflation heatmaps) |
+| `plots_mismatched_relationship.R` | Discrimination between relationship hypotheses |
+| `plots_cutoffs_publication.R` | Classification performance at fixed FPR thresholds |
+| `plots_locus_inflation.R` | Per-locus LR inflation and heterozygosity |
+| `plot_ranking_summary.R` | Focal ranking test — per-database figures |
+| `compare_ranking_across_databases.R` | Focal ranking test — cross-database comparison |
+
+> The earlier `plots_matched.R`, `plots_mismatched.R`, and `plots_proportion_exceeding_cutoffs.R` have been superseded; `plots_matched.R` is archived in `code_graveyard/`.
 
 ---
 
@@ -228,7 +264,13 @@ Rscript code/combined_lr_wrapper.R output/LR/LR_AfAm_parent_child_n1000_20251211
 ### 4. Run analysis and generate plots
 ```bash
 Rscript code/analyze_lr_outputs.R output/my_analysis
-Rscript code/plots_matched.R output/my_analysis
+Rscript code/prepare_combined_lr_intermediates.R output/my_analysis
+Rscript code/plots_matched_publication.R output/my_analysis
+```
+
+### 5. Run the test suite
+```bash
+Rscript -e 'testthat::test_dir("tests/testthat")'
 ```
 
 ### HPC Cluster (SLURM)
