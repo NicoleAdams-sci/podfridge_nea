@@ -33,3 +33,51 @@ output/**/ranking_failures_*.csv
 # Stray cluster logs that land under output/
 output/**/*.out
 output/**/*.err
+
+# ============================================================
+# Cluster-only outputs — protect from git clean, never version.
+# (These lines cannot delete anything; they only stop git from
+#  treating these as new files to stage or clean.)
+# ============================================================
+
+# Raw simulated pair data — the ~1000 files, the crown jewels
+output/pairs_*.csv
+
+# Regenerated file lists
+output/*_file_list.txt
+
+# Archived analysis runs
+output/lr_analysis_*.tar.gz
+
+# Older analysis run kept for reference
+output/lr_analysis_20260130/
+
+# Sanity-check outputs
+output/sanity_check/
+
+# Heavy combined-LR datasets (any run)
+output/**/combined_LR_all.rds
+output/**/combined_LR_match.csv.gz
+output/**/combined_LR_mismatch.csv
+output/**/combined_LR_summary_stats.csv
+output/**/combined_LR_ratio_summary.csv
+output/**/combined_LR_ratios_raw.csv
+
+# Aggregated intermediates (regenerable from the .rds)
+output/**/mismatched_pop_heatmap.csv
+output/**/mismatched_pop_robustness.csv
+output/**/proportions_with_classification.csv
+
+# Heavy plotting / stats output dirs (any run)
+output/**/plots_matched/
+output/**/plots_mismatched/
+output/**/plots_mismatched_population/
+output/**/plots_exceeding_cutoffs/
+output/**/stats/
+
+# Focal-test run artifacts
+output/focal_test_*/manifest_*.csv
+output/focal_test_*/focalList_*.csv
+output/focal_test_*/figures/*.pdf
+output/focal_test_*/figures/ranking_summary_statistics.csv
+output/focal_cross_db/*.pdf
