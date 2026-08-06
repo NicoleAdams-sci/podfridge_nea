@@ -6,9 +6,11 @@
 # Produces three figures:
 #
 #   FIGURE 1 (Main Text):
-#     Classification summary at 29 autosomal loci using the 0.01% FPR threshold
-#     only. Clean, single-threshold view for the main text argument.
-#     Output: cutoff_classification_0.01fpr_29loci.png
+#     Classification summary using the 0.01% FPR threshold only, contrasting
+#     two loci panels as stacked A/B sub-panels: Core 13 (A) and Expanded 20 (B).
+#     Clean, single-threshold view for the main text argument, showing how the
+#     larger panel improves discrimination.
+#     Output: cutoff_classification_0.01fpr_core13_expanded20.png
 #
 #   FIGURE 2 (Supplement):
 #     Classification summary at 29 autosomal loci across all three FPR thresholds
@@ -97,7 +99,7 @@ hypothesis_labels <- c(
 # facet column, visually separated from the four named populations
 population_order <- c("AfAm", "Asian", "Cauc", "Hispanic", "all")
 
-# Color palettes — kept consistent with plots_matched.R throughout
+# Color palettes — kept consistent with plots_matched_publication.R throughout
 relationship_colors <- c(
   "Parent-Child"   = "#D55E00",   # Vermillion
   "Full Siblings"  = "#E69F00",   # Orange
@@ -174,46 +176,63 @@ log_message(paste("Loaded", nrow(proportions_all), "rows."))
 
 # =============================================================================
 # SECTION 3: FIGURE 1 — MAIN TEXT
-# Classification performance at 29 loci, 0.01% FPR threshold only
+# Classification performance at Core 13 vs Expanded 20 loci, 0.01% FPR only
 # =============================================================================
 # Single-threshold view using only the most stringent, forensically relevant
-# cutoff. Two row facets (one per hypothesis), five column facets (four
-# populations + "all" rightmost). Kept clean for the main text argument.
+# cutoff. Both loci panels are shown in ONE faceted plot so that the two loci
+# conditions for a given hypothesis sit as ADJACENT rows — making the Core 13
+# vs Expanded 20 comparison a single-row glance rather than a cross-panel jump.
+#
+# Facet layout: rows = tested_relationship (outer) + loci_set (inner),
+#               cols = known_relationship.
+# This yields 4 row facets (2 hypotheses x 2 loci sets) and 6 column facets,
+# with a single shared set of column headers and one x-axis.
+#
+# Y-axis is FIXED at 0-100% across all facets (both loci sets reach ~100% at the
+# True Positive / Related FP cells), so bar HEIGHTS are directly comparable
+# everywhere — no free_y.
+#
+# The previous stacked A/B version is preserved, commented out, at the end of
+# this section in case panel-letter referencing is preferred.
 # =============================================================================
 
-log_message("Building Figure 1: classification summary at 0.01% FPR only, 29 loci...")
+log_message("Building Figure 1: classification summary at 0.01% FPR, Core 13 vs Expanded 20...")
 
 fig1_data <- proportions_all %>%
   filter(
-    loci_set == "autosomal_29",
+    loci_set %in% c("core_13", "expanded_20"),
     tested_relationship %in% c("parent_child", "full_siblings")
   )
 
+# prop_LR_gt_1000 = proportion of pairs exceeding the 0.01% FPR cutoff
 figure1 <- ggplot(
   fig1_data,
   aes(
     x    = classification,
-    y    = prop_LR_gt_1000,     # prop_LR_gt_1000 = proportion exceeding 0.01% FPR cutoff
+    y    = prop_LR_gt_1000,
     fill = population
   )
 ) +
   geom_col(position = position_dodge(width = 0.85), width = 0.8) +
+  # Rows: hypothesis (outer) + loci set (inner, so the two loci conditions are
+  # adjacent rows); Cols: known relationship. Fixed y for direct comparability.
   facet_grid(
-    tested_relationship ~ known_relationship,
-    scales = "free_y",
+    tested_relationship + loci_set ~ known_relationship,
     labeller = labeller(
       tested_relationship = as_labeller(hypothesis_labels),
-      known_relationship          = as_labeller(relationship_labels)
+      loci_set            = as_labeller(loci_set_labels),
+      known_relationship  = as_labeller(relationship_labels)
     )
   ) +
   scale_fill_manual(values = population_colors, name = "Population",
                     labels = population_labels) +
-  #scale_x_discrete(labels = relationship_labels) +
   scale_y_continuous(
-    labels = percent_format(accuracy = 0.001)
+    labels = percent_format(accuracy = 0.001),
+    limits = c(0, 1),
+    breaks = seq(0, 1, by = 0.25)
   ) +
   labs(
-    title    = "LR Classification Performance at 29 Autosomal Loci",
+    title    = "LR Classification Performance: Core 13 vs Expanded 20 Loci",
     subtitle = "Threshold: 0.01% false positive rate among unrelated pairs",
     x        = "Classification",
     y        = "Proportion of pairs with LR > threshold"
@@ -221,15 +240,61 @@ figure1 <- ggplot(
   theme_publication(base_size = 14)
 
 ggsave(
-  filename = file.path(output_dir, "cutoff_classification_0.01fpr_29loci.png"),
+  filename = file.path(output_dir, "cutoff_classification_0.01fpr_core13_expanded20.png"),
   plot     = figure1,
   width    = 18,
-  height   = 10,
+  height   = 16,
   dpi      = 300,
   bg       = "white"
 )
 
 log_message("Figure 1 saved.")
+
+# ---------------------------------------------------------------------------
+# ALTERNATIVE (previous) LAYOUT: stacked A/B sub-panels, one per loci set.
+# Uncomment this block — and comment out the faceted `figure1` above — to
+# switch back to panel-letter (A/B) referencing with per-panel free y-axes.
+# ---------------------------------------------------------------------------
+# make_fig1_panel <- function(data, loci, panel_title) {
+#   panel_data <- data %>% filter(loci_set == loci)
+#   ggplot(
+#     panel_data,
+#     aes(x = classification, y = prop_LR_gt_1000, fill = population)
+#   ) +
+#     geom_col(position = position_dodge(width = 0.85), width = 0.8) +
+#     facet_grid(
+#       tested_relationship ~ known_relationship,
+#       scales   = "free_y",
+#       labeller = labeller(
+#         tested_relationship = as_labeller(hypothesis_labels),
+#         known_relationship  = as_labeller(relationship_labels)
+#       )
+#     ) +
+#     scale_fill_manual(values = population_colors, name = "Population",
+#                       labels = population_labels) +
+#     scale_y_continuous(labels = percent_format(accuracy = 0.001)) +
+#     labs(title = panel_title, x = "Classification",
+#          y = "Proportion of pairs with LR > threshold") +
+#     theme_publication(base_size = 14)
+# }
+#
+# fig1a <- make_fig1_panel(fig1_data, "core_13",     "Core 13 Loci")
+# fig1b <- make_fig1_panel(fig1_data, "expanded_20", "Expanded 20 Loci")
+#
+# figure1_ab <- (fig1a / fig1b) +
+#   plot_annotation(
+#     title      = "LR Classification Performance: Core 13 vs Expanded 20 Loci",
+#     subtitle   = "Threshold: 0.01% false positive rate among unrelated pairs",
+#     tag_levels = "A"
+#   ) +
+#   plot_layout(guides = "collect") &
+#   theme(legend.position = "bottom")
+#
+# ggsave(
+#   filename = file.path(output_dir, "cutoff_classification_0.01fpr_core13_expanded20_AB.png"),
+#   plot     = figure1_ab,
+#   width    = 18, height = 20, dpi = 300, bg = "white"
+# )
 
 
 # =============================================================================
