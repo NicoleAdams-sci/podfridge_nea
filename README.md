@@ -12,7 +12,7 @@ This file is the map. The detailed documentation lives in two places:
 
 | Document | Covers |
 |---|---|
-| [`SimulationModules_summary.md`](SimulationModules_summary.md) | **The main reference.** Every module and wrapper in depth, the full start-to-finish workflow with SLURM commands and resource requirements, output file schemas, and the test suite. |
+| [`README_simulation_modules.md`](SimulationModules_summary.md) | **The main reference.** Every module and wrapper in depth, the full start-to-finish workflow with SLURM commands and resource requirements, output file schemas, and the test suite. |
 | [`README_focal_ranking_test.md`](README_focal_ranking_test.md) | The supplementary focal (database-search) ranking test: does a true relative rank in the top N of a database of unrelated individuals? |
 
 ## Repository Structure
