@@ -136,21 +136,42 @@ combined_true_lr_data <- fread(
   )
 )
 
-unrelated_pool_data <- fread(
-  UNRELATED_POOL_FILE,
-  select = c(
-    "batch_id",
-    "database_composition",
-    "database_label",
-    "individual_id",
-    "relationship_to_focal",
-    "source_frequency_population",
-    "population",
-    "locus",
-    "A1",
-    "A2"
+# -------------------------------------------------------------------------
+# Load the unrelated pool.
+#
+# Prefer the pre-slimmed .fst built by slim_unrelated_pool.R for THIS loci
+# set (columns already trimmed, loci already filtered, binary columnar =
+# fast load). If it isn't present, fall back to reading the full CSV exactly
+# as before. Either way the loci filter + assertion below guarantee the same
+# result — the slim is purely a load-time optimization, not a change to what
+# gets ranked.
+# -------------------------------------------------------------------------
+
+pool_cols <- c("individual_id", "relationship_to_focal", "population",
+               "locus", "A1", "A2")
+
+slim_pool_file <- derive_slim_pool_path(UNRELATED_POOL_FILE, loci_sets_to_use)
+
+if (file.exists(slim_pool_file)) {
+  if (!requireNamespace("fst", quietly = TRUE)) {
+    stop("Found slim pool '", slim_pool_file,
+         "' but the 'fst' package is not installed. Install fst or remove the ",
+         "slim file to fall back to the CSV.")
+  }
+  cat(sprintf("  Unrelated pool source : slim .fst (%s)\n", slim_pool_file))
+  unrelated_pool_data <- as.data.table(
+    fst::read_fst(slim_pool_file, columns = pool_cols)
   )
-)
+} else {
+  cat(sprintf("  Unrelated pool source : full CSV (no slim found at %s)\n",
+              slim_pool_file))
+  unrelated_pool_data <- fread(UNRELATED_POOL_FILE, select = pool_cols)
+}
+
+# Force allele/key columns to character (matches Module 8 output and what the
+# downstream LR code expects), regardless of how they were stored/read.
+chr_cols <- intersect(pool_cols, names(unrelated_pool_data))
+unrelated_pool_data[, (chr_cols) := lapply(.SD, as.character), .SDcols = chr_cols]
 
 # Filter to loci needed for ranking
 pair_data <- pair_data |>
@@ -158,6 +179,19 @@ pair_data <- pair_data |>
 
 unrelated_pool_data <- unrelated_pool_data |>
   filter(locus %in% loci_needed)
+
+# Assertion: every locus this run ranks on must be present in the pool we
+# loaded. Guards against a stale/mismatched slim (e.g. built for a different
+# loci set) silently ranking on the wrong loci.
+missing_pool_loci <- setdiff(loci_needed, unique(unrelated_pool_data$locus))
+if (length(missing_pool_loci) > 0) {
+  stop(sprintf(
+    "Unrelated pool is missing required loci: %s\n  Loaded from: %s\n  If using a slim, re-run slim_unrelated_pool.R for loci sets: %s",
+    paste(missing_pool_loci, collapse = ", "),
+    if (file.exists(slim_pool_file)) slim_pool_file else UNRELATED_POOL_FILE,
+    paste(loci_sets_to_use, collapse = ", ")
+  ))
+}
 
 # -------------------------------------------------------------------------
 # Determine pair IDs for this chunk
