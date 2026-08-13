@@ -100,7 +100,20 @@ generate_unrelated_pool <- function(population,
 
 #' Generate unrelated individuals
 #'
-#' Internal function that creates unrelated individuals using Module 2
+#' Internal function that creates unrelated individuals.
+#'
+#' Vectorized rewrite: instead of calling simulate_str_profile()/simulate_allele()
+#' once per individual per locus (which re-filters and re-normalizes the whole
+#' allele-frequency table on every one of the ~n_unrelated * n_loci * 2 draws),
+#' this precomputes the allele pool and normalized probabilities ONCE per locus
+#' and then draws all n_unrelated alleles for that locus in a single sample() call.
+#'
+#' This is identical in distribution to the original: each allele is an
+#' independent draw from the same per-(population, locus) categorical
+#' distribution (same FALLBACK_FREQ handling, same normalization). A1 and A2 are
+#' drawn separately so the two alleles at a locus stay independent, exactly as in
+#' simulate_str_profile(). Output columns, column order, individual_id format,
+#' and row order (individual-major, loci in loci_list order) are unchanged.
 #'
 #' @param n_unrelated Integer, number of unrelated individuals
 #' @param population Character, population for simulation
@@ -114,25 +127,75 @@ generate_unrelated_individuals <- function(n_unrelated,
                                            allele_frequency_data,
                                            batch_id) {
   
-  all_individuals <- map_dfr(1:n_unrelated, function(ind_idx) {
+  # Fast per-locus lookups; as.data.table() copies, so the caller's object is
+  # never modified.
+  freq_dt <- as.data.table(allele_frequency_data)
+  target_pop <- population
+  
+  # --- Precompute allele pool + normalized probabilities ONCE per locus --------
+  # Mirrors simulate_allele(): substitute FALLBACK_FREQ for any zero frequency,
+  # then normalize to sum to 1. Done a single time per locus instead of once per
+  # allele draw.
+  locus_tables <- lapply(loci_list, function(this_locus) {
+    af <- freq_dt[population == target_pop & marker == this_locus]
     
-    # Format individual ID with leading zeros
-    individual_id <- paste0("unrel_", sprintf("%03d", ind_idx))
+    if (nrow(af) == 0) {
+      stop(paste("No valid alleles found for population", target_pop,
+                 "and locus", this_locus))
+    }
     
-    # Generate individual using Module 2
-    individual_profile <- simulate_str_profile(loci_list, population, allele_frequency_data)
-    individual_profile$individual_id <- individual_id
-    individual_profile$relationship_to_focal <- "unrelated"
+    freqs <- af$frequency
+    freqs[freqs == 0] <- FALLBACK_FREQ
+    freqs <- freqs / sum(freqs)
     
-    # Add batch_id and reorder columns
-    individual_profile$batch_id <- batch_id
-    individual_profile <- individual_profile |>
-      select(batch_id, individual_id, relationship_to_focal, population, locus, A1, A2)
-    
-    return(individual_profile)
+    list(
+      alleles = as.character(af$allele),
+      prob    = freqs
+    )
+  })
+  names(locus_tables) <- loci_list
+  
+  # --- Vectorized draw: all n_unrelated individuals for one locus at once ------
+  # sample(size = n_unrelated, replace = TRUE) is n_unrelated independent draws
+  # from the same distribution, i.e. distributionally identical to calling
+  # simulate_allele() once per individual.
+  per_locus <- lapply(loci_list, function(this_locus) {
+    tab <- locus_tables[[this_locus]]
+    data.table(
+      ind_idx = seq_len(n_unrelated),
+      locus   = this_locus,
+      A1 = sample(tab$alleles, size = n_unrelated, replace = TRUE, prob = tab$prob),
+      A2 = sample(tab$alleles, size = n_unrelated, replace = TRUE, prob = tab$prob)
+    )
   })
   
-  return(all_individuals)
+  all_individuals <- rbindlist(per_locus)
+  
+  # Restore individual-major row order (all of individual 1's loci, then
+  # individual 2's, ...) with loci in loci_list order within each individual, so
+  # the file layout matches the original loop-based output. Ordering on the
+  # integer ind_idx (not the padded id string) preserves numeric order for
+  # n_unrelated >= 1000.
+  all_individuals[, locus := factor(locus, levels = loci_list)]
+  setorder(all_individuals, ind_idx, locus)
+  all_individuals[, locus := as.character(locus)]
+  
+  # Attach the constant/derived columns and match the original schema exactly.
+  all_individuals[, `:=`(
+    batch_id              = batch_id,
+    individual_id         = sprintf("unrel_%03d", ind_idx),
+    relationship_to_focal = "unrelated",
+    population            = target_pop
+  )]
+  all_individuals[, ind_idx := NULL]
+  
+  setcolorder(
+    all_individuals,
+    c("batch_id", "individual_id", "relationship_to_focal",
+      "population", "locus", "A1", "A2")
+  )
+  
+  as.data.frame(all_individuals)
 }
 
 #' Generate unrelated pools for multiple populations
